@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Firebase Save Diagnostic</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+    .log { margin: 4px 0; padding: 4px 8px; border-left: 3px solid #333; }
+    .ok { border-color: #10b981; color: #10b981; }
+    .err { border-color: #ef4444; color: #ef4444; }
+    .info { border-color: #3b82f6; color: #93c5fd; }
+    #output { white-space: pre-wrap; }
+    button { padding: 10px 20px; margin: 10px 5px; cursor: pointer; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h2>Firebase Save Diagnostic Tool</h2>
+  <p>This tests the exact same Firebase operations used by face registration.</p>
+  <button onclick="runDiagnostic()">Run Full Diagnostic</button>
+  <button onclick="testStorageOnly()">Test Storage Only</button>
+  <button onclick="testFirestoreOnly()">Test Firestore Only</button>
+  <div id="output"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+    import { getFirestore, doc, getDoc, updateDoc, collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyACOINw_3uL148Diy_H2kxCCdQsuQqO8V4",
+      authDomain: "automark12.firebaseapp.com",
+      projectId: "automark12",
+      storageBucket: "automark12.appspot.com",
+      messagingSenderId: "100907199337",
+      appId: "1:100907199337:web:f66536a6f3c6a8a735ebf8",
+      measurementId: "G-98YWM2VFMP"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const storage = getStorage(app);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    const outputEl = document.getElementById('output');
+    
+    function log(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = `log ${type}`;
+      div.textContent = `[${new Date().toISOString().substring(11,19)}] ${msg}`;
+      outputEl.appendChild(div);
+      console.log(msg);
+    }
+
+    // Create a tiny 1x1 red pixel PNG as data URL for testing
+    function createTestDataUrl() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2;
+      canvas.height = 2;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'red';
+      ctx.fillRect(0, 0, 2, 2);
+      return canvas.toDataURL('image/png');
+    }
+
+    async function findFirstStudent() {
+      log('Looking for a student document in Firestore...');
+      const q = query(collection(db, "users"), where("role", "==", "student"));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) {
+        log('No student documents found in Firestore!', 'err');
+        return null;
+      }
+      const first = snapshot.docs[0];
+      const data = first.data();
+      log(`Found student: ${data.name} (uid: ${first.id})`, 'ok');
+      return { uid: first.id, ...data };
+    }
+
+    window.runDiagnostic = async function() {
+      outputEl.innerHTML = '';
+      log('=== FULL DIAGNOSTIC START ===');
+
+      // Step 0: Auth check
+      log('Step 0: Checking auth state...');
+      if (!auth.currentUser) {
+        log('Not authenticated. Signing in as admin...', 'info');
+        try {
+          await signInWithEmailAndPassword(auth, 'admin@automark.com', 'password123');
+          log(`Signed in as: ${auth.currentUser.uid} (${auth.currentUser.email})`, 'ok');
+        } catch (authErr) {
+          log(`Auth FAILED: ${authErr.code} - ${authErr.message}`, 'err');
+          return;
+        }
+      } else {
+        log(`Already signed in as: ${auth.currentUser.uid} (${auth.currentUser.email})`, 'ok');
+      }
+
+      // Find a student
+      let student;
+      try {
+        student = await findFirstStudent();
+        if (!student) return;
+      } catch (e) {
+        log(`Firestore read FAILED: ${e.code} - ${e.message}`, 'err');
+        return;
+      }
+
+      // Step 1: Test Firebase Storage upload
+      log('');
+      log('Step 1: Testing Firebase Storage upload...');
+      const testDataUrl = createTestDataUrl();
+      const storagePath = `face_registrations/${student.uid}/diagnostic_test_${Date.now()}.png`;
+      log(`  Path: ${storagePath}`);
+      log(`  Data URL length: ${testDataUrl.length} chars`);
+
+      let downloadUrl;
+      try {
+        const storageRef = ref(storage, storagePath);
+        const snapshot = await uploadString(storageRef, testDataUrl, 'data_url');
+        downloadUrl = await getDownloadURL(snapshot.ref);
+        log(`Step 1 OK: Upload succeeded. URL: ${downloadUrl.substring(0, 80)}...`, 'ok');
+      } catch (uploadErr) {
+        log(`Step 1 FAILED: ${uploadErr.code} - ${uploadErr.message}`, 'err');
+        log(`  Error name: ${uploadErr.name}`, 'err');
+        log(`  Server response: ${uploadErr.serverResponse || 'N/A'}`, 'err');
+        log(`  customData: ${JSON.stringify(uploadErr.customData || {})}`, 'err');
+        log('=== DIAGNOSTIC: Storage upload is the failing operation ===', 'err');
+        return;
+      }
+
+      // Step 2: Test Firestore updateDoc
+      log('');
+      log('Step 2: Testing Firestore updateDoc...');
+      const mockDescriptors = [Array.from({length: 128}, () => Math.random())];
+      log(`  Doc path: users/${student.uid}`);
+      log(`  Descriptors: 1 array of 128 floats`);
+      log(`  Photo URL: ${downloadUrl ? downloadUrl.substring(0, 60) + '...' : 'N/A'}`);
+
+      try {
+        const studentRef = doc(db, "users", student.uid);
+        await updateDoc(studentRef, {
+          descriptors: mockDescriptors,
+          photo: downloadUrl || student.photo
+        });
+        log('Step 2 OK: Firestore updateDoc succeeded.', 'ok');
+      } catch (firestoreErr) {
+        log(`Step 2 FAILED: ${firestoreErr.code} - ${firestoreErr.message}`, 'err');
+        log(`  Error name: ${firestoreErr.name}`, 'err');
+        log('=== DIAGNOSTIC: Firestore updateDoc is the failing operation ===', 'err');
+        return;
+      }
+
+      // Step 3: Test loadAllUsers (read all users)
+      log('');
+      log('Step 3: Testing loadAllUsers (getDocs)...');
+      try {
+        const allSnapshot = await getDocs(collection(db, "users"));
+        log(`Step 3 OK: Read ${allSnapshot.size} user documents.`, 'ok');
+      } catch (loadErr) {
+        log(`Step 3 FAILED: ${loadErr.code} - ${loadErr.message}`, 'err');
+        log('=== DIAGNOSTIC: loadAllUsers is the failing operation ===', 'err');
+        return;
+      }
+
+      log('');
+      log('=== ALL STEPS PASSED ===', 'ok');
+      log('The save pipeline should work. If it still fails in the app, the issue may be:', 'info');
+      log('  - Auth user mismatch (app uses different auth instance)', 'info');
+      log('  - registeringStudent.uid is undefined/wrong', 'info');
+      log('  - Data URL size too large (10 photos × full resolution)', 'info');
+    };
+
+    window.testStorageOnly = async function() {
+      outputEl.innerHTML = '';
+      log('=== STORAGE-ONLY TEST ===');
+      if (!auth.currentUser) {
+        try {
+          await signInWithEmailAndPassword(auth, 'admin@automark.com', 'password123');
+          log(`Signed in: ${auth.currentUser.uid}`, 'ok');
+        } catch (e) {
+          log(`Auth failed: ${e.code}`, 'err');
+          return;
+        }
+      }
+      const testDataUrl = createTestDataUrl();
+      const path = `diagnostic_test/test_${Date.now()}.png`;
+      log(`Uploading to: ${path}`);
+      try {
+        const storageRef = ref(storage, path);
+        await uploadString(storageRef, testDataUrl, 'data_url');
+        log('Storage upload OK', 'ok');
+      } catch (e) {
+        log(`Storage FAILED: code=${e.code} msg=${e.message}`, 'err');
+        log(`serverResponse: ${e.serverResponse || 'none'}`, 'err');
+      }
+    };
+
+    window.testFirestoreOnly = async function() {
+      outputEl.innerHTML = '';
+      log('=== FIRESTORE-ONLY TEST ===');
+      if (!auth.currentUser) {
+        try {
+          await signInWithEmailAndPassword(auth, 'admin@automark.com', 'password123');
+          log(`Signed in: ${auth.currentUser.uid}`, 'ok');
+        } catch (e) {
+          log(`Auth failed: ${e.code}`, 'err');
+          return;
+        }
+      }
+      const student = await findFirstStudent();
+      if (!student) return;
+      log(`Updating doc users/${student.uid} with mock descriptor`);
+      try {
+        const studentRef = doc(db, "users", student.uid);
+        await updateDoc(studentRef, {
+          _diagnosticTest: Date.now()
+        });
+        log('Firestore updateDoc OK', 'ok');
+      } catch (e) {
+        log(`Firestore FAILED: code=${e.code} msg=${e.message}`, 'err');
+      }
+    };
+  </script>
+</body>
+</html>
