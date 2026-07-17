@@ -1,6 +1,7 @@
 node_modules/
 venv/
 dist/
+build-privacy-check/
 __pycache__/
 *.pyc
 
@@ -12,3 +13,11 @@ __pycache__/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Student photos and biometric enrollment media must stay out of Git.
+*.jpg
+*.jpeg
+*.JPEG
+*.webp
+private-media/
+public/student-photos/

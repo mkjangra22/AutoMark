@@ -1,16 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, User, Calendar, BarChart3, MapPin, Bell, LogOut, Menu, X } from 'lucide-react';
-const getBase64FromUrl = async (url) => {
-  const data = await fetch(url);
-  const blob = await data.blob();
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(blob);
-    reader.onloadend = () => {
-      resolve(reader.result);
-    };
-  });
-};
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { db, auth, storage, firebaseConfig } from './firebase';
 import { initializeApp, getApps } from "firebase/app";
@@ -46,6 +35,7 @@ secondaryAuth = getAuth(secondaryApp);
 const USE_FIREBASE_STORAGE = false;
 const FACE_API_URL = import.meta.env.VITE_FACE_API_URL || 'http://127.0.0.1:8000';
 const REQUIRED_STABLE_RECOGNITIONS = 3;
+const DEFAULT_PROFILE_IMAGE = '/AutoMark-logo__.png';
 
 const getLocalDateKey = () => {
   const now = new Date();
@@ -155,7 +145,6 @@ const AutomatedAttendanceSystem = () => {
         class: 'AIML 5th A',
         studentId: '1',
         rollNo: '2823392',
-        photo: 'mayank-profile.jpeg',
         email: 'mayank@automark.com'
       }
     },
@@ -168,7 +157,6 @@ const AutomatedAttendanceSystem = () => {
         class: '5A',
         studentId: '2',
         rollNo: '250085',
-        photo: 'bhavya-profile.jpg',
         email: 'bhavya@automark.com'
       }
     },
@@ -181,7 +169,6 @@ const AutomatedAttendanceSystem = () => {
         class: '5A',
         studentId: '3',
         rollNo: '103',
-        photo: 'vaani-profile.jpg',
         email: 'vaani@automark.com'
       }
     },
@@ -194,7 +181,6 @@ const AutomatedAttendanceSystem = () => {
         class: '5A',
         studentId: '4',
         rollNo: '104',
-        photo: 'hemant-profile.jpg',
         email: 'hemant@automark.com'
       }
     },
@@ -207,7 +193,6 @@ const AutomatedAttendanceSystem = () => {
         class: '5A',
         studentId: '5',
         rollNo: '105',
-        photo: 'vineet-profile.jpg',
         email: 'vineet@automark.com'
       }
     }
@@ -231,36 +216,10 @@ const AutomatedAttendanceSystem = () => {
           }
            const uid = credential.user.uid;
           
-          let descriptors = [];
-          if (u.userData.role === 'student' && u.userData.photo) {
-            try {
-              let fileName = u.userData.photo;
-              if (fileName === 'mayank-profile.jpeg') {
-                fileName = 'mayank-profile.JPEG';
-              }
-              const photoUrl = `/${fileName}`;
-              const base64Img = await getBase64FromUrl(photoUrl);
-              const response = await fetch(`${FACE_API_URL}/extract_descriptors`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ images: [base64Img] })
-              });
-              const resData = await response.json();
-              if (resData.descriptors && resData.descriptors.length > 0) {
-                descriptors = resData.descriptors;
-                console.log(`Computed face descriptor for default student ${u.userData.name}`);
-              } else {
-                console.warn(`No face detected in photo for default student ${u.userData.name}`);
-              }
-            } catch (faceErr) {
-              console.error(`Error computing descriptor for ${u.userData.name}:`, faceErr);
-            }
-          }
-
           await setDoc(doc(db, "users", uid), {
             uid,
             ...u.userData,
-            descriptors: descriptors
+            descriptors: []
           });
         } catch (err) {
           console.error(`Error seeding user ${u.email}:`, err);
@@ -992,7 +951,7 @@ const AutomatedAttendanceSystem = () => {
                       createdAt: new Date().toISOString()
                     });
 
-                    finalPhotoUrl = registeringStudent.photo || 'mayank-profile.jpeg';
+                    finalPhotoUrl = registeringStudent.photo || DEFAULT_PROFILE_IMAGE;
                   } else {
                     finalPhotoUrl = uploadedUrls[0];
                   }
@@ -1273,7 +1232,7 @@ const AutomatedAttendanceSystem = () => {
                 <div key={student.id} className="bg-white overflow-hidden shadow rounded-lg">
                   <div className="px-4 py-5 sm:p-6">
                     <div className="flex items-center">
-                      <img className="h-12 w-12 rounded-full" src={student.photo} alt={`Profile of ${student.name}`} />
+                      <img className="h-12 w-12 rounded-full" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
                       <div className="ml-4">
                         <h3 className="text-lg leading-6 font-medium text-gray-900">{student.name}</h3>
                         <p className="text-sm text-gray-500">Roll No: {student.rollNo}</p>
@@ -1324,7 +1283,7 @@ const AutomatedAttendanceSystem = () => {
                   <li key={student.id} className="px-6 py-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center">
-                        <img className="h-10 w-10 rounded-full" src={student.photo} alt={`Profile of ${student.name}`} />
+                        <img className="h-10 w-10 rounded-full" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
                         <div className="ml-4">
                           <div className="text-sm font-medium text-gray-900">{student.name}</div>
                           <div className="text-sm text-gray-500">Roll No: {student.rollNo}</div>
@@ -1360,7 +1319,7 @@ const AutomatedAttendanceSystem = () => {
                   <li key={`${studentId}-${leave.id || index}`} className="px-6 py-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center">
-                        <img className="h-10 w-10 rounded-full" src={student.photo} alt={`Profile of ${student.name}`} />
+                        <img className="h-10 w-10 rounded-full" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
                         <div className="ml-4">
                           <div className="text-sm font-medium text-gray-900">{student.name}</div>
                           <div className="text-sm text-gray-500">Date: {leave.date}</div>
@@ -1449,7 +1408,7 @@ const AutomatedAttendanceSystem = () => {
           <div className="bg-white overflow-hidden shadow rounded-lg mb-8">
             <div className="px-4 py-5 sm:p-6">
               <div className="flex items-center">
-                <img className="h-16 w-16 rounded-full" src={user?.photo || 'mayank-profile.jpeg'} alt="Profile of student" />
+                <img className="h-16 w-16 rounded-full" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile of student" />
                 <div className="ml-4">
                   <h3 className="text-lg leading-6 font-medium text-gray-900">{user?.name}</h3>
                   <p className="text-sm text-gray-500">Roll No: {user?.rollNo || user?.id} | Class: {user?.class}</p>
@@ -1641,7 +1600,7 @@ const AutomatedAttendanceSystem = () => {
         rollNo: createUserForm.role === 'student' ? (createUserForm.rollNo || '') : '',
         department: createUserForm.department || '',
         studentId: newUser.uid, // Use Firebase UID as the studentId
-        photo: createUserForm.role === 'student' ? 'mayank-profile.jpeg' : 'bhavya-profile.jpg', // sensible default photo
+        photo: '',
         disabled: false,
         deleted: false,
         createdAt: new Date().toISOString()

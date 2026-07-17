@@ -4,31 +4,10 @@ import base64
 import os
 
 def test_extract_real_face():
-    # Find a profile image in the workspace root
-    profile_images = [
-        "mayank-profile.JPEG",
-        "bhavya-profile.jpg",
-        "vaani-profile.jpg",
-        "hemant-profile.jpg",
-        "vineet-profile.jpg",
-        "leesha-profile.jpg"
-    ]
-    
-    selected_img = None
-    for img_name in profile_images:
-        # Check parent directory (workspace root is one level up from backend/)
-        path = os.path.join("..", img_name)
-        if os.path.exists(path):
-            selected_img = path
-            break
-        # Also check current directory
-        if os.path.exists(img_name):
-            selected_img = img_name
-            break
-            
-    if not selected_img:
-        print("Error: No profile image found in workspace root to test face extraction.")
-        return False
+    selected_img = os.getenv("FACE_TEST_IMAGE")
+    if not selected_img or not os.path.isfile(selected_img):
+        print("Skipped: set FACE_TEST_IMAGE to a local, consented test image.")
+        return True
         
     print(f"Using profile image: {selected_img}")
     with open(selected_img, "rb") as image_file:
