@@ -87,7 +87,8 @@ const AutomatedAttendanceSystem = () => {
   const [students, setStudents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [geoLocation, setGeoLocation] = useState(null);
-  const [schoolLocation] = useState({ lat: 28.976639, lng: 77.033000 }); // School location (Sonipat, Haryana)
+  const [isMockingLocation, setIsMockingLocation] = useState(false);
+  const [schoolLocation] = useState({ lat: 28.976635, lng: 77.032988 }); // School location (Sonipat, Haryana)
   const [seeding, setSeeding] = useState(false);
   const [adminView, setAdminView] = useState('overview');
   const [usersList, setUsersList] = useState([]);
@@ -383,6 +384,31 @@ const AutomatedAttendanceSystem = () => {
     }
   }, []);
 
+  const toggleMockLocation = () => {
+    if (!isMockingLocation) {
+      setIsMockingLocation(true);
+      setGeoLocation(schoolLocation);
+    } else {
+      setIsMockingLocation(false);
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            setGeoLocation({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            });
+          },
+          (error) => {
+            console.error('Error getting location:', error);
+            setGeoLocation(null);
+          }
+        );
+      } else {
+        setGeoLocation(null);
+      }
+    }
+  };
+
   const handleLogin = async () => {
     if (loginData.username && loginData.password) {
       let email = loginData.username;
@@ -464,6 +490,7 @@ const AutomatedAttendanceSystem = () => {
   };
 
   const isWithinSchoolPremises = () => {
+    if (isMockingLocation) return true;
     if (!geoLocation) return false;
     const distance = calculateDistance(
       geoLocation.lat, geoLocation.lng,
@@ -1130,17 +1157,29 @@ const AutomatedAttendanceSystem = () => {
         <div className="mb-8">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-medium text-gray-900">Mark Attendance</h2>
-            <div className="flex items-center text-sm text-gray-500">
-              <MapPin size={16} className="mr-1" />
-              {geoLocation ? (
-                isWithinSchoolPremises() ? (
-                  <span className="text-green-600">Within school premises</span>
+            <div className="flex items-center space-x-3 text-sm text-gray-500">
+              <div className="flex items-center">
+                <MapPin size={16} className="mr-1" />
+                {geoLocation ? (
+                  isWithinSchoolPremises() ? (
+                    <span className="text-green-600">Within school premises</span>
+                  ) : (
+                    <span className="text-red-600">Outside school premises</span>
+                  )
                 ) : (
-                  <span className="text-red-600">Outside school premises</span>
-                )
-              ) : (
-                <span>Checking location...</span>
-              )}
+                  <span>Checking location...</span>
+                )}
+              </div>
+              <button
+                onClick={toggleMockLocation}
+                className={`px-2 py-1 rounded text-xs font-semibold border transition-all ${
+                  isMockingLocation
+                    ? 'bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100'
+                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {isMockingLocation ? 'Mocking Location Active' : 'Mock Location'}
+              </button>
             </div>
           </div>
           
