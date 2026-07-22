@@ -1,22 +1,28 @@
 import base64
-import io
 import json
 import os
+import sys
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
+import cv2
 import numpy as np
-import torch
-from facenet_pytorch import InceptionResnetV1, MTCNN
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image
 from pydantic import BaseModel
 
-app = FastAPI(title="AutoMark FaceNet Recognition Backend")
+from . import lbph
+from .lbph.faces import detect_faces, lbph_features, load_face_detector
+from .lbph.model import FaceModel, load_model, save_model
 
-# This backend is intended for the local machine that runs the attendance desk.
+# The supplied model was pickled from the original ``face_recognize`` package.
+# Keep that module name as an alias so the existing model can be loaded safely.
+sys.modules.setdefault("face_recognize", lbph)
+sys.modules.setdefault("face_recognize.model", sys.modules[FaceModel.__module__])
+
+app = FastAPI(title="AutoMark LBP Face Recognition Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -25,101 +31,56 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-device = torch.device("cpu")
-print("Loading MTCNN and FaceNet (VGGFace2) on CPU...")
-mtcnn = MTCNN(keep_all=False, select_largest=True, device=device)
-resnet = InceptionResnetV1(pretrained="vggface2").eval().to(device)
-print("Face models loaded successfully.")
-
-STUDENT_CACHE = {}
-LAST_CACHE_TIME = 0.0
-CACHE_TTL_SECONDS = 30
+ROOT_DIR = Path(__file__).resolve().parent
+MODEL_PATH = ROOT_DIR / "private-models" / "face_model.pkl"
 FIREBASE_PROJECT_ID = os.getenv(
     "FIREBASE_PROJECT_ID", os.getenv("VITE_FIREBASE_PROJECT_ID", "automark12")
 )
+CACHE_TTL_SECONDS = 30
+STUDENT_CACHE: dict[str, dict[str, str]] = {}
+LAST_CACHE_TIME = 0.0
 
-# These are deliberately conservative defaults. Tune them using real, consented
-# validation images from your school before changing them for production.
-MIN_FACE_PROBABILITY = 0.97
-MIN_FACE_SIZE_PIXELS = 100
-MATCH_THRESHOLD = 0.70
-MATCH_MARGIN = 0.04
-TOP_REFERENCE_SAMPLES = 3
-EMBEDDING_DIMENSION = 512
+detector = load_face_detector()
 
 
 class RecognizeRequest(BaseModel):
     image: str
 
 
-class ExtractRequest(BaseModel):
+class RegisterFacesRequest(BaseModel):
+    student_id: str
     images: list[str]
 
 
-def decode_base64_image(base64_str: str) -> Image.Image:
+def decode_image(encoded_image: str) -> np.ndarray:
     try:
-        if "," in base64_str:
-            base64_str = base64_str.split(",", 1)[1]
-        return Image.open(io.BytesIO(base64.b64decode(base64_str))).convert("RGB")
+        if "," in encoded_image:
+            encoded_image = encoded_image.split(",", 1)[1]
+        raw = base64.b64decode(encoded_image)
+        image = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError("OpenCV could not decode the image")
+        return image
     except Exception as error:
         raise HTTPException(status_code=400, detail="Invalid or unreadable image.") from error
 
 
-def normalize_embedding(embedding: np.ndarray) -> np.ndarray | None:
-    embedding = np.asarray(embedding, dtype=np.float32)
-    norm = np.linalg.norm(embedding)
-    if embedding.shape != (EMBEDDING_DIMENSION,) or norm == 0:
-        return None
-    return embedding / norm
-
-
-def detect_single_face(image: Image.Image):
-    """Return a valid face box or a user-facing rejection reason."""
-    try:
-        boxes, probabilities = mtcnn.detect(image)
-    except Exception as error:
-        print(f"MTCNN detection error: {error}")
-        return None, "Face detection failed. Try again."
-
-    if boxes is None or probabilities is None or len(boxes) == 0:
+def get_single_face(image: np.ndarray):
+    faces = detect_faces(image, detector)
+    if not faces:
         return None, "No face detected."
-    if len(boxes) != 1:
+    if len(faces) != 1:
         return None, "Show exactly one face to the camera."
-
-    box = boxes[0]
-    probability = float(probabilities[0])
-    width = float(box[2] - box[0])
-    height = float(box[3] - box[1])
-    if probability < MIN_FACE_PROBABILITY:
-        return None, "Face detection is not confident. Improve lighting and face the camera."
-    if min(width, height) < MIN_FACE_SIZE_PIXELS:
-        return None, "Move closer to the camera."
-
-    return {
-        "x": float(box[0]),
-        "y": float(box[1]),
-        "width": width,
-        "height": height,
-        "probability": probability,
-    }, None
+    return faces[0], None
 
 
-def get_face_embedding(image: Image.Image) -> np.ndarray | None:
-    try:
-        face_tensor = mtcnn(image)
-        if face_tensor is None:
-            return None
-        with torch.no_grad():
-            embedding = resnet(face_tensor.unsqueeze(0).to(device))[0].cpu().numpy()
-        return normalize_embedding(embedding)
-    except Exception as error:
-        print(f"Embedding extraction error: {error}")
-        return None
+def box_response(face) -> dict[str, int]:
+    x, y, width, height = face.box
+    return {"x": x, "y": y, "width": width, "height": height}
 
 
 def fetch_students_from_firestore():
-    """Load valid student descriptor arrays from Firestore's REST endpoint."""
-    students = {}
+    students: dict[str, dict[str, str]] = {}
     page_token = None
     try:
         while True:
@@ -141,37 +102,23 @@ def fetch_students_from_firestore():
                     continue
                 if fields.get("disabled", {}).get("booleanValue", False):
                     continue
-
-                descriptors = []
-                values = fields.get("descriptors", {}).get("arrayValue", {}).get("values", [])
-                for item in values:
-                    raw_values = item.get("arrayValue", {}).get("values", [])
-                    vector = []
-                    for value in raw_values:
-                        number = value.get("doubleValue", value.get("integerValue"))
-                        if number is not None:
-                            vector.append(float(number))
-                    normalized = normalize_embedding(np.array(vector, dtype=np.float32))
-                    if normalized is not None:
-                        descriptors.append(normalized)
-
                 uid = document.get("name", "").rsplit("/", 1)[-1]
-                if uid and descriptors:
-                    students[uid] = {
-                        "name": fields.get("name", {}).get("stringValue", "Unknown"),
-                        "rollNo": fields.get("rollNo", {}).get("stringValue", "N/A"),
-                        "descriptors": descriptors,
-                    }
-
+                if not uid:
+                    continue
+                name = fields.get("name", {}).get("stringValue", "Unknown")
+                students[uid] = {
+                    "uid": uid,
+                    "name": name,
+                    "rollNo": fields.get("rollNo", {}).get("stringValue", "N/A"),
+                    "modelLabel": fields.get("faceModelLabel", {}).get("stringValue", uid),
+                    "firstName": name.split()[0] if name else "",
+                }
             page_token = data.get("nextPageToken")
             if not page_token:
                 break
-
-        print(f"Loaded {len(students)} registered students into the recognition cache.")
         return students
     except Exception as error:
-        # Preserve the existing cache if Firebase is temporarily unavailable.
-        print(f"Could not refresh students from Firestore: {error}")
+        print(f"Could not refresh student labels from Firestore: {error}")
         return None
 
 
@@ -185,27 +132,50 @@ def refresh_student_cache(force: bool = False):
         LAST_CACHE_TIME = time.time()
 
 
-def unknown_response(reason: str, box=None):
+def resolve_student(model_label: str):
+    normalized_label = model_label.casefold()
+    for student in STUDENT_CACHE.values():
+        if normalized_label in {
+            student["uid"].casefold(),
+            student["modelLabel"].casefold(),
+            student["firstName"].casefold(),
+        }:
+            return student
+    return None
+
+
+def unknown_response(reason: str, box=None, confidence: float = 0.0):
     return {
         "match": False,
         "label": "unknown",
         "name": "Unknown",
         "rollNo": "N/A",
-        "similarity": 0.0,
-        "distance": 1.0,
+        "similarity": confidence,
+        "distance": 1.0 - confidence,
         "margin": 0.0,
         "reason": reason,
         "box": box,
     }
 
 
+def add_student_to_model(student_id: str, features: list[np.ndarray]) -> None:
+    model = load_model(MODEL_PATH)
+    feature_matrix = np.vstack(features)
+    centroid = feature_matrix.mean(axis=0)
+    distances = np.linalg.norm(feature_matrix - centroid, axis=1)
+    model.centroids[student_id] = centroid
+    model.acceptance_distances[student_id] = max(float(np.percentile(distances, 95)) * 2.0, 1.2)
+    save_model(model, MODEL_PATH)
+
+
 @app.get("/health")
 def health():
+    model = load_model(MODEL_PATH)
     return {
         "status": "ok",
+        "engine": "opencv-haar-lbp",
+        "trained_labels": sorted(model.centroids),
         "cached_students": len(STUDENT_CACHE),
-        "match_threshold": MATCH_THRESHOLD,
-        "match_margin": MATCH_MARGIN,
     }
 
 
@@ -215,79 +185,61 @@ def reload_students():
     return {"status": "success", "cached_students": len(STUDENT_CACHE)}
 
 
-@app.post("/extract_descriptors")
-def extract_descriptors(request: ExtractRequest):
-    descriptors = []
+@app.post("/register_faces")
+def register_faces(request: RegisterFacesRequest):
+    if len(request.images) < 10:
+        raise HTTPException(status_code=400, detail="Capture at least 10 face samples for registration.")
+
+    features = []
     rejected = []
-    for index, base64_image in enumerate(request.images):
+    for index, encoded_image in enumerate(request.images):
         try:
-            image = decode_base64_image(base64_image)
-            _, reason = detect_single_face(image)
+            face, reason = get_single_face(decode_image(encoded_image))
             if reason:
                 rejected.append({"index": index, "reason": reason})
                 continue
-            embedding = get_face_embedding(image)
-            if embedding is None:
-                rejected.append({"index": index, "reason": "Could not create a face descriptor."})
-                continue
-            descriptors.append(embedding.tolist())
+            features.append(lbph_features(face.image))
         except HTTPException as error:
             rejected.append({"index": index, "reason": error.detail})
 
-    return {"descriptors": descriptors, "rejected": rejected}
+    if len(features) < 10:
+        return {
+            "registered": False,
+            "accepted": len(features),
+            "rejected": rejected,
+            "reason": "Ten clear, single-face samples are required. Try again in better lighting.",
+        }
+
+    add_student_to_model(request.student_id, features)
+    return {"registered": True, "accepted": len(features), "rejected": rejected, "label": request.student_id}
 
 
 @app.post("/recognize")
 def recognize(request: RecognizeRequest):
-    refresh_student_cache()
-    image = decode_base64_image(request.image)
-    box, reason = detect_single_face(image)
+    image = decode_image(request.image)
+    face, reason = get_single_face(image)
     if reason:
-        return unknown_response(reason, box)
-    if not STUDENT_CACHE:
-        return unknown_response("No registered students are available.", box)
+        return unknown_response(reason)
 
-    query_embedding = get_face_embedding(image)
-    if query_embedding is None:
-        return unknown_response("Could not create a face descriptor.", box)
+    model = load_model(MODEL_PATH)
+    model_label, confidence = model.predict(lbph_features(face.image))
+    box = box_response(face)
+    if model_label == "unknown":
+        return unknown_response("Face does not match a registered student confidently.", box, confidence)
 
-    candidates = []
-    for uid, info in STUDENT_CACHE.items():
-        similarities = sorted(
-            (float(np.dot(query_embedding, reference)) for reference in info["descriptors"]),
-            reverse=True,
-        )
-        # Median of the best samples is less vulnerable to one bad enrollment photo.
-        score = float(np.median(similarities[:TOP_REFERENCE_SAMPLES]))
-        candidates.append((score, uid, info))
+    refresh_student_cache()
+    student = resolve_student(model_label)
+    if student is None:
+        return unknown_response("Recognized face is not linked to an active student account.", box, confidence)
 
-    candidates.sort(key=lambda candidate: candidate[0], reverse=True)
-    best_score, best_uid, best_info = candidates[0]
-    second_score = candidates[1][0] if len(candidates) > 1 else 0.0
-    margin = best_score - second_score
-    matched = best_score >= MATCH_THRESHOLD and (
-        len(candidates) == 1 or margin >= MATCH_MARGIN
-    )
-
-    if not matched:
-        if best_score < MATCH_THRESHOLD:
-            reason = "Face does not match a registered student confidently."
-        else:
-            reason = "Face is too similar to another student. Try again with better lighting."
-        print(f"Recognition rejected: score={best_score:.3f}, margin={margin:.3f}")
-        response = unknown_response(reason, box)
-        response.update({"similarity": best_score, "distance": 1.0 - best_score, "margin": margin})
-        return response
-
-    print(f"Recognition matched {best_info['name']}: score={best_score:.3f}, margin={margin:.3f}")
     return {
         "match": True,
-        "label": best_uid,
-        "name": best_info["name"],
-        "rollNo": best_info["rollNo"],
-        "similarity": best_score,
-        "distance": 1.0 - best_score,
-        "margin": margin,
+        "label": student["uid"],
+        "name": student["name"],
+        "rollNo": student["rollNo"],
+        "similarity": confidence,
+        "distance": 1.0 - confidence,
+        "margin": 0.0,
         "reason": "Face recognized.",
         "box": box,
     }

@@ -889,103 +889,62 @@ const AutomatedAttendanceSystem = () => {
                 clearInterval(registerIntervalRef.current);
                 registerIntervalRef.current = null;
 
-                setRegisterStatus('Uploading photos and saving descriptors. Please wait...');
+                setRegisterStatus('Registering face model. Please wait...');
                 
                 try {
-                  console.log('[FaceReg Save] Extracting descriptors via backend for student:', registeringStudent.uid, registeringStudent.name);
+                  console.log('[FaceReg Save] Registering LBP samples for student:', registeringStudent.uid, registeringStudent.name);
                   
-                  // Extract descriptors for the 10 captured photos
-                  const descResponse = await fetch(`${FACE_API_URL}/extract_descriptors`, {
+                  const registrationResponse = await fetch(`${FACE_API_URL}/register_faces`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ images: photos })
+                    body: JSON.stringify({ student_id: registeringStudent.uid, images: photos })
                   });
-                  if (!descResponse.ok) {
-                    throw new Error('Face descriptor service is unavailable.');
+                  if (!registrationResponse.ok) {
+                    throw new Error('Face registration service is unavailable.');
                   }
-                  const descData = await descResponse.json();
-                  const descriptors = descData.descriptors || [];
+                  const registrationData = await registrationResponse.json();
 
-                  if (descriptors.length < 10) {
-                    throw new Error(`Only extracted ${descriptors.length}/10 descriptors. Please try again in better lighting.`);
-                  }
-
-                  // Step 1: Upload photos to Firebase Storage if enabled
-                  const uploadedUrls = [];
-                  let storageUploadFailed = false;
-
-                  if (USE_FIREBASE_STORAGE) {
-                    for (let i = 0; i < photos.length; i++) {
-                      const storagePath = `face_registrations/${registeringStudent.uid}/photo_${i}_${Date.now()}.png`;
-                      try {
-                        const storageRef = ref(storage, storagePath);
-                        const snapshot = await uploadString(storageRef, photos[i], 'data_url');
-                        const downloadUrl = await getDownloadURL(snapshot.ref);
-                        uploadedUrls.push(downloadUrl);
-                      } catch (uploadErr) {
-                        console.warn('[FaceReg Save] Storage upload failed, utilizing fallback.', uploadErr);
-                        storageUploadFailed = true;
-                        break;
-                      }
-                    }
+                  if (!registrationData.registered) {
+                    throw new Error(registrationData.reason || 'Face samples could not be registered.');
                   }
 
-                  const isFallbackActive = !USE_FIREBASE_STORAGE || storageUploadFailed;
-                  let finalPhotoUrl = '';
+                  // Store only model metadata, never raw registration photos or descriptors.
+                  const registrationRef = doc(db, "faceRegistrations", registeringStudent.uid);
+                  await setDoc(registrationRef, {
+                    uid: registeringStudent.uid,
+                    model: 'opencv-haar-lbp',
+                    modelLabel: registeringStudent.uid,
+                    sampleCount: registrationData.accepted,
+                    createdAt: new Date().toISOString()
+                  });
 
-                  if (isFallbackActive) {
-                    let compressedPhotoBase64 = '';
-                    try {
-                      compressedPhotoBase64 = await compressImageToBase64(photos[0]);
-                    } catch (compressErr) {
-                      console.error('[FaceReg Save] Compression error, using original:', compressErr);
-                      compressedPhotoBase64 = photos[0];
-                    }
-
-                    // Save to faceRegistrations collection
-                    const registrationRef = doc(db, "faceRegistrations", registeringStudent.uid);
-                    await setDoc(registrationRef, {
-                      uid: registeringStudent.uid,
-                      descriptors: descriptors,
-                      registrationPhotoBase64: compressedPhotoBase64,
-                      createdAt: new Date().toISOString()
-                    });
-
-                    finalPhotoUrl = registeringStudent.photo || DEFAULT_PROFILE_IMAGE;
-                  } else {
-                    finalPhotoUrl = uploadedUrls[0];
-                  }
-
-                  // Step 2: Update Firestore user document with descriptors
+                  // Link the Firebase user to the LBP model label.
                   const studentRef = doc(db, "users", registeringStudent.uid);
-                  const updateData = {
-                    descriptors: descriptors
-                  };
-                  if (!isFallbackActive) {
-                    updateData.photo = finalPhotoUrl;
-                  }
-                  await updateDoc(studentRef, updateData);
+                  await updateDoc(studentRef, {
+                    faceModelLabel: registeringStudent.uid,
+                    descriptors: []
+                  });
 
-                  // Step 3: Reload backend cache
+                  // Reload backend label cache.
                   try {
                     await fetch(`${FACE_API_URL}/reload`, { method: 'POST' });
                   } catch (reloadErr) {
                     console.error("Failed to reload backend student cache:", reloadErr);
                   }
 
-                  // Step 4: Update local state
+                  // Update local state.
                   setStudents(prev => prev.map(s => {
                     if (s.uid === registeringStudent.uid) {
                       return {
                         ...s,
-                        descriptors: descriptors,
-                        photo: finalPhotoUrl
+                        descriptors: [],
+                        faceModelLabel: registeringStudent.uid
                       };
                     }
                     return s;
                   }));
 
-                  // Step 5: Refresh admin users list
+                  // Refresh admin users list.
                   await loadAllUsers();
 
                   alert(`Face registration successful for ${registeringStudent.name}!`);

@@ -1,7 +1,7 @@
 node_modules/
 venv/
 dist/
-build-privacy-check/
+build-*/
 __pycache__/
 *.pyc
 
@@ -21,3 +21,4 @@ yarn-error.log*
 *.webp
 private-media/
 public/student-photos/
+backend/private-models/
