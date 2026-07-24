@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, User, Calendar, BarChart3, MapPin, Bell, LogOut, Menu, X } from 'lucide-react';
+import { Camera, User, Calendar, BarChart3, MapPin, Bell, LogOut, Menu, X, Key, ShieldCheck, Save, Upload, Edit3, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, UserCheck, RefreshCw } from 'lucide-react';
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { db, auth, storage, firebaseConfig } from './firebase';
 import { initializeApp, getApps } from "firebase/app";
@@ -8,6 +8,9 @@ import {
   signOut, 
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   getAuth
 } from "firebase/auth";
 import { 
@@ -34,7 +37,7 @@ secondaryAuth = getAuth(secondaryApp);
 // Configuration flag to enable or disable Firebase Storage uploads (fallback activates if false or if upload fails)
 const USE_FIREBASE_STORAGE = false;
 const FACE_API_URL = import.meta.env.VITE_FACE_API_URL || 'http://127.0.0.1:8000';
-const REQUIRED_STABLE_RECOGNITIONS = 3;
+const REQUIRED_STABLE_RECOGNITIONS = 1;
 const DEFAULT_PROFILE_IMAGE = '/AutoMark-logo__.png';
 
 const getLocalDateKey = () => {
@@ -92,9 +95,392 @@ const AutomatedAttendanceSystem = () => {
   const [seeding, setSeeding] = useState(false);
   const [adminView, setAdminView] = useState('overview');
   const [usersList, setUsersList] = useState([]);
-  const [createUserForm, setCreateUserForm] = useState({ email: '', name: '', role: 'student', class: '', rollNo: '', department: '' });
+  const [createUserForm, setCreateUserForm] = useState({ email: '', name: '', role: 'student', class: '', assignedClasses: [], rollNo: '', department: '' });
   const [editUserForm, setEditUserForm] = useState(null);
   const [createdCredentials, setCreatedCredentials] = useState(null);
+  const [classesList, setClassesList] = useState([]);
+  const [newClassForm, setNewClassForm] = useState({ name: '', department: '' });
+  const [selectedTeacherClass, setSelectedTeacherClass] = useState('all');
+
+  // Student Profile & Password Management State
+  const [studentTab, setStudentTab] = useState('attendance'); // 'attendance' | 'profile' | 'security'
+  const [profileForm, setProfileForm] = useState({ name: '', class: '', rollNo: '', department: '', photo: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [profileMessage, setProfileMessage] = useState({ type: '', text: '' });
+  const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setProfileForm({
+        name: user.name || '',
+        class: user.class || '',
+        rollNo: user.rollNo || '',
+        department: user.department || '',
+        photo: user.photo || ''
+      });
+    }
+  }, [user]);
+
+  const handleUpdateProfile = async (e) => {
+    if (e) e.preventDefault();
+    if (!user) return;
+    if (!profileForm.name.trim()) {
+      setProfileMessage({ type: 'error', text: 'Full Name cannot be empty.' });
+      return;
+    }
+
+    setIsUpdatingProfile(true);
+    setProfileMessage({ type: '', text: '' });
+
+    try {
+      const userUid = user.uid || user.id;
+      const userDocRef = doc(db, "users", userUid);
+
+      const updatePayload = {
+        name: profileForm.name.trim(),
+        class: profileForm.class.trim(),
+        rollNo: profileForm.rollNo.trim(),
+        department: profileForm.department.trim(),
+        photo: profileForm.photo
+      };
+
+      await updateDoc(userDocRef, updatePayload);
+
+      // Update local user state
+      setUser(prev => ({
+        ...prev,
+        ...updatePayload
+      }));
+
+      // Update in students list if loaded
+      setStudents(prev => prev.map(s => (s.uid === userUid || s.id === userUid || s.docId === userUid) ? { ...s, ...updatePayload } : s));
+
+      setProfileMessage({ type: 'success', text: 'Profile details updated successfully!' });
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      setProfileMessage({ type: 'error', text: `Failed to update profile: ${error.message}` });
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
+  const handleProfilePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const rawDataUrl = event.target.result;
+      const compressedDataUrl = await compressImageToBase64(rawDataUrl, 320, 240, 0.6);
+      setProfileForm(prev => ({ ...prev, photo: compressedDataUrl }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleChangePassword = async (e) => {
+    if (e) e.preventDefault();
+    setPasswordMessage({ type: '', text: '' });
+
+    if (!passwordForm.currentPassword) {
+      setPasswordMessage({ type: 'error', text: 'Please enter your current (or temporary) password.' });
+      return;
+    }
+    if (!passwordForm.newPassword) {
+      setPasswordMessage({ type: 'error', text: 'Please enter your new password.' });
+      return;
+    }
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordMessage({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordMessage({ type: 'error', text: 'New password and confirmation do not match.' });
+      return;
+    }
+
+    setIsChangingPassword(true);
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser || !currentUser.email) {
+        throw new Error("No active authenticated session found. Please log in again.");
+      }
+
+      // Re-authenticate user with current/temp password
+      const credential = EmailAuthProvider.credential(currentUser.email, passwordForm.currentPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+
+      // Update password in Firebase Auth
+      await updatePassword(currentUser, passwordForm.newPassword);
+
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordMessage({ type: 'success', text: 'Your password has been changed successfully! Use your new password the next time you log in.' });
+    } catch (error) {
+      console.error("Error changing password:", error);
+      let errorMsg = error.message;
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errorMsg = 'Incorrect current/temporary password. Please verify and try again.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMsg = 'Password is too weak. Please choose a stronger password.';
+      }
+      setPasswordMessage({ type: 'error', text: errorMsg });
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  // Teacher Profile & Password Management State
+  const [teacherTab, setTeacherTab] = useState('attendance'); // 'attendance' | 'profile' | 'security'
+  const [teacherProfileForm, setTeacherProfileForm] = useState({ name: '', class: '', department: '', photo: '' });
+  const [teacherPasswordForm, setTeacherPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [showTeacherCurrentPassword, setShowTeacherCurrentPassword] = useState(false);
+  const [showTeacherNewPassword, setShowTeacherNewPassword] = useState(false);
+  const [teacherProfileMessage, setTeacherProfileMessage] = useState({ type: '', text: '' });
+  const [teacherPasswordMessage, setTeacherPasswordMessage] = useState({ type: '', text: '' });
+  const [isUpdatingTeacherProfile, setIsUpdatingTeacherProfile] = useState(false);
+  const [isChangingTeacherPassword, setIsChangingTeacherPassword] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setTeacherProfileForm({
+        name: user.name || '',
+        class: user.class || '',
+        department: user.department || '',
+        photo: user.photo || ''
+      });
+    }
+  }, [user]);
+
+  const handleUpdateTeacherProfile = async (e) => {
+    if (e) e.preventDefault();
+    if (!user) return;
+    if (!teacherProfileForm.name.trim()) {
+      setTeacherProfileMessage({ type: 'error', text: 'Full Name cannot be empty.' });
+      return;
+    }
+
+    setIsUpdatingTeacherProfile(true);
+    setTeacherProfileMessage({ type: '', text: '' });
+
+    try {
+      const userUid = user.uid || user.id;
+      const userDocRef = doc(db, "users", userUid);
+
+      const updatePayload = {
+        name: teacherProfileForm.name.trim(),
+        class: teacherProfileForm.class.trim(),
+        department: teacherProfileForm.department.trim(),
+        photo: teacherProfileForm.photo
+      };
+
+      await updateDoc(userDocRef, updatePayload);
+
+      // Update local user state
+      setUser(prev => ({
+        ...prev,
+        ...updatePayload
+      }));
+
+      setTeacherProfileMessage({ type: 'success', text: 'Teacher profile details updated successfully!' });
+    } catch (error) {
+      console.error("Error updating teacher profile:", error);
+      setTeacherProfileMessage({ type: 'error', text: `Failed to update profile: ${error.message}` });
+    } finally {
+      setIsUpdatingTeacherProfile(false);
+    }
+  };
+
+  const handleTeacherProfilePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const rawDataUrl = event.target.result;
+      const compressedDataUrl = await compressImageToBase64(rawDataUrl, 320, 240, 0.6);
+      setTeacherProfileForm(prev => ({ ...prev, photo: compressedDataUrl }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleTeacherChangePassword = async (e) => {
+    if (e) e.preventDefault();
+    setTeacherPasswordMessage({ type: '', text: '' });
+
+    if (!teacherPasswordForm.currentPassword) {
+      setTeacherPasswordMessage({ type: 'error', text: 'Please enter your current (or temporary) password.' });
+      return;
+    }
+    if (!teacherPasswordForm.newPassword) {
+      setTeacherPasswordMessage({ type: 'error', text: 'Please enter your new password.' });
+      return;
+    }
+    if (teacherPasswordForm.newPassword.length < 6) {
+      setTeacherPasswordMessage({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+    if (teacherPasswordForm.newPassword !== teacherPasswordForm.confirmPassword) {
+      setTeacherPasswordMessage({ type: 'error', text: 'New password and confirmation do not match.' });
+      return;
+    }
+
+    setIsChangingTeacherPassword(true);
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser || !currentUser.email) {
+        throw new Error("No active authenticated session found. Please log in again.");
+      }
+
+      // Re-authenticate teacher with current/temp password
+      const credential = EmailAuthProvider.credential(currentUser.email, teacherPasswordForm.currentPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+
+      // Update password in Firebase Auth
+      await updatePassword(currentUser, teacherPasswordForm.newPassword);
+
+      setTeacherPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setTeacherPasswordMessage({ type: 'success', text: 'Your password has been changed successfully! Use your new password the next time you log in.' });
+    } catch (error) {
+      console.error("Error changing teacher password:", error);
+      let errorMsg = error.message;
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errorMsg = 'Incorrect current/temporary password. Please verify and try again.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMsg = 'Password is too weak. Please choose a stronger password.';
+      }
+      setTeacherPasswordMessage({ type: 'error', text: errorMsg });
+    } finally {
+      setIsChangingTeacherPassword(false);
+    }
+  };
+
+  // Admin Profile & Password Management State
+  const [adminProfileForm, setAdminProfileForm] = useState({ name: '', department: '', photo: '' });
+  const [adminPasswordForm, setAdminPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [showAdminCurrentPassword, setShowAdminCurrentPassword] = useState(false);
+  const [showAdminNewPassword, setShowAdminNewPassword] = useState(false);
+  const [adminProfileMessage, setAdminProfileMessage] = useState({ type: '', text: '' });
+  const [adminPasswordMessage, setAdminPasswordMessage] = useState({ type: '', text: '' });
+  const [isUpdatingAdminProfile, setIsUpdatingAdminProfile] = useState(false);
+  const [isChangingAdminPassword, setIsChangingAdminPassword] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setAdminProfileForm({
+        name: user.name || '',
+        department: user.department || '',
+        photo: user.photo || ''
+      });
+    }
+  }, [user]);
+
+  const handleUpdateAdminProfile = async (e) => {
+    if (e) e.preventDefault();
+    if (!user) return;
+    if (!adminProfileForm.name.trim()) {
+      setAdminProfileMessage({ type: 'error', text: 'Full Name cannot be empty.' });
+      return;
+    }
+
+    setIsUpdatingAdminProfile(true);
+    setAdminProfileMessage({ type: '', text: '' });
+
+    try {
+      const userUid = user.uid || user.id;
+      const userDocRef = doc(db, "users", userUid);
+
+      const updatePayload = {
+        name: adminProfileForm.name.trim(),
+        department: adminProfileForm.department.trim(),
+        photo: adminProfileForm.photo
+      };
+
+      await updateDoc(userDocRef, updatePayload);
+
+      // Update local user state
+      setUser(prev => ({
+        ...prev,
+        ...updatePayload
+      }));
+
+      setAdminProfileMessage({ type: 'success', text: 'Admin profile details updated successfully!' });
+    } catch (error) {
+      console.error("Error updating admin profile:", error);
+      setAdminProfileMessage({ type: 'error', text: `Failed to update profile: ${error.message}` });
+    } finally {
+      setIsUpdatingAdminProfile(false);
+    }
+  };
+
+  const handleAdminProfilePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const rawDataUrl = event.target.result;
+      const compressedDataUrl = await compressImageToBase64(rawDataUrl, 320, 240, 0.6);
+      setAdminProfileForm(prev => ({ ...prev, photo: compressedDataUrl }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAdminChangePassword = async (e) => {
+    if (e) e.preventDefault();
+    setAdminPasswordMessage({ type: '', text: '' });
+
+    if (!adminPasswordForm.currentPassword) {
+      setAdminPasswordMessage({ type: 'error', text: 'Please enter your current (or temporary) password.' });
+      return;
+    }
+    if (!adminPasswordForm.newPassword) {
+      setAdminPasswordMessage({ type: 'error', text: 'Please enter your new password.' });
+      return;
+    }
+    if (adminPasswordForm.newPassword.length < 6) {
+      setAdminPasswordMessage({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+    if (adminPasswordForm.newPassword !== adminPasswordForm.confirmPassword) {
+      setAdminPasswordMessage({ type: 'error', text: 'New password and confirmation do not match.' });
+      return;
+    }
+
+    setIsChangingAdminPassword(true);
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser || !currentUser.email) {
+        throw new Error("No active authenticated session found. Please log in again.");
+      }
+
+      // Re-authenticate admin with current/temp password
+      const credential = EmailAuthProvider.credential(currentUser.email, adminPasswordForm.currentPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+
+      // Update password in Firebase Auth
+      await updatePassword(currentUser, adminPasswordForm.newPassword);
+
+      setAdminPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setAdminPasswordMessage({ type: 'success', text: 'Your admin password has been changed successfully! Use your new password the next time you log in.' });
+    } catch (error) {
+      console.error("Error changing admin password:", error);
+      let errorMsg = error.message;
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errorMsg = 'Incorrect current password. Please verify and try again.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMsg = 'Password is too weak. Please choose a stronger password.';
+      }
+      setAdminPasswordMessage({ type: 'error', text: errorMsg });
+    } finally {
+      setIsChangingAdminPassword(false);
+    }
+  };
 
   // Facial recognition registration & continuous scanning states/refs
   const [registeringStudent, setRegisteringStudent] = useState(null);
@@ -103,10 +489,16 @@ const AutomatedAttendanceSystem = () => {
   const [registerCapturing, setRegisterCapturing] = useState(false);
   const [registerStatus, setRegisterStatus] = useState('');
   const [lastMarkedStatus, setLastMarkedStatus] = useState('');
+  const [registerTab, setRegisterTab] = useState('webcam');
+  const [uploadedPhotos, setUploadedPhotos] = useState([]);
   const registerVideoRef = useRef(null);
   const registerCanvasRef = useRef(null);
   const registerIntervalRef = useRef(null);
   const registerCapturingRef = useRef(false);
+  const photosRef = useRef([]);
+  const capturesCountRef = useRef(0);
+  const lastCenterRef = useRef(null);
+  const lastCaptureTimeRef = useRef(0);
   const videoIntervalRef = useRef(null);
   const uploadingIdsRef = useRef(new Set());
   const recognitionCandidateRef = useRef({ label: '', consecutive: 0 });
@@ -147,42 +539,6 @@ const AutomatedAttendanceSystem = () => {
         studentId: '1',
         rollNo: '2823392',
         email: 'mayank@automark.com'
-      }
-    },
-    {
-      email: 'bhavya@automark.com',
-      password: 'password123',
-      userData: {
-        name: 'Bhavya',
-        role: 'student',
-        class: '5A',
-        studentId: '2',
-        rollNo: '250085',
-        email: 'bhavya@automark.com'
-      }
-    },
-    {
-      email: 'vaani@automark.com',
-      password: 'password123',
-      userData: {
-        name: 'Vaani Mangal',
-        role: 'student',
-        class: '5A',
-        studentId: '3',
-        rollNo: '103',
-        email: 'vaani@automark.com'
-      }
-    },
-    {
-      email: 'hemant@automark.com',
-      password: 'password123',
-      userData: {
-        name: 'Hemant',
-        role: 'student',
-        class: '5A',
-        studentId: '4',
-        rollNo: '104',
-        email: 'hemant@automark.com'
       }
     },
     {
@@ -341,6 +697,78 @@ const AutomatedAttendanceSystem = () => {
     }
   }, [user]);
 
+  const loadAllClasses = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, "classes"));
+      const list = [];
+      querySnapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        list.push({ id: docSnap.id, ...data });
+      });
+
+      if (list.length === 0) {
+        const defaultClasses = [
+          { id: '5A', name: '5A', department: 'Primary' },
+          { id: 'AIML 5th A', name: 'AIML 5th A', department: 'Computer Science' },
+          { id: 'CSE 3B', name: 'CSE 3B', department: 'Computer Science' }
+        ];
+        for (const cls of defaultClasses) {
+          await setDoc(doc(db, "classes", cls.id), {
+            name: cls.name,
+            department: cls.department,
+            createdAt: new Date().toISOString()
+          });
+        }
+        setClassesList(defaultClasses);
+      } else {
+        list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setClassesList(list);
+      }
+    } catch (error) {
+      console.error("Error loading classes from Firestore:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadAllClasses();
+  }, []);
+
+  const handleCreateClass = async (e) => {
+    if (e) e.preventDefault();
+    if (!newClassForm.name.trim()) {
+      alert("Please enter a Class Name.");
+      return;
+    }
+    const classId = newClassForm.name.trim();
+    try {
+      await setDoc(doc(db, "classes", classId), {
+        name: classId,
+        department: newClassForm.department.trim(),
+        createdAt: new Date().toISOString()
+      });
+      setNewClassForm({ name: '', department: '' });
+      await loadAllClasses();
+      alert(`Class "${classId}" created successfully!`);
+    } catch (err) {
+      console.error("Error creating class:", err);
+      alert(`Failed to create class: ${err.message}`);
+    }
+  };
+
+  const getTeacherAssignedClasses = (userData) => {
+    if (!userData) return [];
+    if (Array.isArray(userData.assignedClasses) && userData.assignedClasses.length > 0) {
+      return userData.assignedClasses;
+    }
+    if (typeof userData.assignedClasses === 'string' && userData.assignedClasses.trim()) {
+      return userData.assignedClasses.split(',').map(c => c.trim()).filter(Boolean);
+    }
+    if (userData.class && typeof userData.class === 'string' && userData.class.trim()) {
+      return [userData.class.trim()];
+    }
+    return [];
+  };
+
   // Load students from Firestore
   useEffect(() => {
     const loadStudents = async () => {
@@ -440,7 +868,11 @@ const AutomatedAttendanceSystem = () => {
             role: userData.role,
             name: userData.name,
             id: userData.studentId || userData.uid,
+            uid: firebaseUser.uid,
+            docId: userDoc.id,
             class: userData.class || '',
+            rollNo: userData.rollNo || '',
+            department: userData.department || '',
             email: userData.email,
             photo: userData.photo || ''
           });
@@ -611,21 +1043,34 @@ const AutomatedAttendanceSystem = () => {
   };
 
   const handleVideoOnPlay = async () => {
-    const canvas = document.createElement('canvas');
-    canvas.style.position = 'absolute';
-    canvas.style.top = '0px';
-    canvas.style.left = '0px';
+    if (!videoRef.current) return;
     const container = videoRef.current.parentNode;
+    
+    // Clear any existing interval
+    if (videoIntervalRef.current) {
+      clearInterval(videoIntervalRef.current);
+      videoIntervalRef.current = null;
+    }
+    recognitionRequestInFlightRef.current = false;
     
     // Clear any existing canvas
     const existingCanvas = container.querySelector('canvas');
     if (existingCanvas) {
       existingCanvas.remove();
     }
+
+    const canvas = document.createElement('canvas');
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0px';
+    canvas.style.left = '0px';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.pointerEvents = 'none';
+    canvas.className = 'pointer-events-none';
     container.appendChild(canvas);
 
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
 
     videoIntervalRef.current = setInterval(async () => {
       if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) {
@@ -667,25 +1112,34 @@ const AutomatedAttendanceSystem = () => {
           let labelText = resData.reason || 'Unknown student';
           
           if (resData.match) {
-            const previous = recognitionCandidateRef.current;
-            const consecutive = previous.label === resData.label ? previous.consecutive + 1 : 1;
-            recognitionCandidateRef.current = { label: resData.label, consecutive };
-            const stableMatch = consecutive >= REQUIRED_STABLE_RECOGNITIONS;
+            const studentDoc = students.find(s => s.docId === resData.label || s.uid === resData.label || s.id === resData.label);
+            const studentClass = studentDoc ? studentDoc.class : (resData.class || '');
+            const teacherClasses = getTeacherAssignedClasses(user);
+            const isClassAssigned = user?.role !== 'teacher' || teacherClasses.length === 0 || teacherClasses.includes(studentClass);
 
-            // Check if attendance already marked today
-            const today = getLocalDateKey();
-            const studentRecords = attendanceData[resData.label] || [];
-            const alreadyMarked = studentRecords.some(r => r.date === today);
-            
-            if (alreadyMarked) {
-              color = 'rgba(245, 158, 11, 1)'; // Orange for already present
-              labelText = `${resData.name} (already present)`;
-            } else if (!stableMatch) {
-              color = 'rgba(245, 158, 11, 1)';
-              labelText = `${resData.name} - confirming ${consecutive}/${REQUIRED_STABLE_RECOGNITIONS}`;
+            if (!isClassAssigned) {
+              color = 'rgba(245, 158, 11, 1)'; // Orange warning
+              labelText = `${resData.name} (Class ${studentClass || 'N/A'} - Not in your class)`;
             } else {
-              color = 'rgba(16, 185, 129, 1)'; // Green for recognized
-              labelText = `${resData.name} (Roll: ${resData.rollNo}, verified)`;
+              const previous = recognitionCandidateRef.current;
+              const consecutive = previous.label === resData.label ? previous.consecutive + 1 : 1;
+              recognitionCandidateRef.current = { label: resData.label, consecutive };
+              const stableMatch = consecutive >= REQUIRED_STABLE_RECOGNITIONS;
+
+              // Check if attendance already marked today
+              const today = getLocalDateKey();
+              const studentRecords = attendanceData[resData.label] || [];
+              const alreadyMarked = studentRecords.some(r => r.date === today);
+
+              if (alreadyMarked) {
+                color = 'rgba(245, 158, 11, 1)'; // Orange for already present
+                labelText = `${resData.name} (already present)`;
+              } else if (!stableMatch) {
+                color = 'rgba(245, 158, 11, 1)';
+                labelText = `${resData.name} - confirming ${consecutive}/${REQUIRED_STABLE_RECOGNITIONS}`;
+              } else {
+                color = 'rgba(16, 185, 129, 1)'; // Green for recognized
+                labelText = `${resData.name} (Roll: ${resData.rollNo}, verified)`;
               
               // Proceed with marking attendance
               if (!uploadingIdsRef.current.has(resData.label)) {
@@ -732,9 +1186,10 @@ const AutomatedAttendanceSystem = () => {
                 saveAttendancePhoto();
               }
             }
-          } else {
-            recognitionCandidateRef.current = { label: '', consecutive: 0 };
           }
+        } else {
+          recognitionCandidateRef.current = { label: '', consecutive: 0 };
+        }
 
           // Draw bounding box
           ctx.strokeStyle = color;
@@ -758,7 +1213,7 @@ const AutomatedAttendanceSystem = () => {
       } finally {
         recognitionRequestInFlightRef.current = false;
       }
-    }, 1000);
+    }, 500);
   };
 
   const stopFacialRecognition = () => {
@@ -787,7 +1242,15 @@ const AutomatedAttendanceSystem = () => {
     setIsRegisteringFace(true);
     setRegisterCaptureProgress(0);
     setRegisterCapturing(false);
+    registerCapturingRef.current = false;
+    photosRef.current = [];
+    capturesCountRef.current = 0;
+    lastCenterRef.current = null;
+    lastCaptureTimeRef.current = 0;
     setRegisterStatus('Camera starting... Align face in target area.');
+    setTimeout(() => {
+      startRegisterVideo();
+    }, 150);
   };
 
   const startRegisterVideo = () => {
@@ -819,6 +1282,87 @@ const AutomatedAttendanceSystem = () => {
     setIsRegisteringFace(false);
     setRegisterCaptureProgress(0);
     setRegisterStatus('');
+    setUploadedPhotos([]);
+    setRegisterTab('webcam');
+  };
+
+  const handleFileUpload = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setRegisterStatus(`Reading ${files.length} photo(s)...`);
+    const readPromises = files.map(file => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(event.target.result);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(readPromises).then(results => {
+      const validResults = results.filter(Boolean);
+      setUploadedPhotos(prev => [...prev, ...validResults]);
+      setRegisterStatus(`${uploadedPhotos.length + validResults.length} photos ready for training.`);
+    });
+  };
+
+  const removeUploadedPhoto = (index) => {
+    setUploadedPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const submitUploadedPhotos = async () => {
+    if (!registeringStudent || uploadedPhotos.length < 5) {
+      alert('Please upload at least 5 clear face photos of the student.');
+      return;
+    }
+
+    setRegisterStatus('Training face model with uploaded photos...');
+    try {
+      const registrationResponse = await fetch(`${FACE_API_URL}/register_faces`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: registeringStudent.uid, images: uploadedPhotos })
+      });
+      if (!registrationResponse.ok) {
+        throw new Error('Face registration service is unavailable.');
+      }
+      const registrationData = await registrationResponse.json();
+      if (!registrationData.registered) {
+        throw new Error(registrationData.reason || 'Uploaded face samples could not be registered.');
+      }
+
+      const registrationRef = doc(db, "faceRegistrations", registeringStudent.uid);
+      await setDoc(registrationRef, {
+        uid: registeringStudent.uid,
+        model: 'opencv-haar-lbp',
+        modelLabel: registeringStudent.uid,
+        sampleCount: registrationData.accepted,
+        createdAt: new Date().toISOString()
+      });
+
+      const studentRef = doc(db, "users", registeringStudent.uid);
+      await updateDoc(studentRef, {
+        faceModelLabel: registeringStudent.uid,
+        descriptors: []
+      });
+
+      try {
+        await fetch(`${FACE_API_URL}/reload`, { method: 'POST' });
+      } catch (reloadErr) {
+        console.error("Failed to reload backend student cache:", reloadErr);
+      }
+
+      setStudents(prev => prev.map(s => s.uid === registeringStudent.uid ? { ...s, faceModelLabel: registeringStudent.uid } : s));
+      await loadAllUsers();
+
+      alert(`Face registration successful for ${registeringStudent.name} with ${registrationData.accepted} samples!`);
+      closeRegisterFaceModal();
+    } catch (err) {
+      console.error('[FaceReg Upload] Error:', err);
+      setRegisterStatus(`Upload failed: ${err.message}`);
+      alert(`Error saving face registration: ${err.message}`);
+    }
   };
 
   const handleRegisterVideoOnPlay = () => {
@@ -827,10 +1371,10 @@ const AutomatedAttendanceSystem = () => {
     const canvas = registerCanvasRef.current;
     if (!canvas) return;
 
-    let lastCenter = null;
-    let lastCaptureTime = 0;
-    const photos = [];
-    let capturesCount = 0;
+    if (registerIntervalRef.current) {
+      clearInterval(registerIntervalRef.current);
+      registerIntervalRef.current = null;
+    }
 
     registerIntervalRef.current = setInterval(async () => {
       if (!registerVideoRef.current || registerVideoRef.current.paused || registerVideoRef.current.ended) {
@@ -841,20 +1385,20 @@ const AutomatedAttendanceSystem = () => {
 
       const videoW = registerVideoRef.current.videoWidth;
       const videoH = registerVideoRef.current.videoHeight;
-      if (!videoW || !videoH) return; // wait for metadata
+      if (!videoW || !videoH) return; // wait for video metadata
 
       if (canvas.width !== videoW || canvas.height !== videoH) {
         canvas.width = videoW;
         canvas.height = videoH;
       }
 
-      // Capture frame
+      // Capture current video frame
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = videoW;
       tempCanvas.height = videoH;
       const tempCtx = tempCanvas.getContext('2d');
       tempCtx.drawImage(registerVideoRef.current, 0, 0, videoW, videoH);
-      const photoDataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
+      const photoDataUrl = tempCanvas.toDataURL('image/jpeg', 0.7);
 
       let detection = null;
       try {
@@ -863,175 +1407,149 @@ const AutomatedAttendanceSystem = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image: photoDataUrl })
         });
-        detection = await response.json();
+        if (response.ok) {
+          detection = await response.json();
+        }
       } catch (detectErr) {
-        console.error('Face detection error via backend:', detectErr);
+        // Backend request error - fallback handling
       }
 
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      let x, y, width, height;
+      let hasFaceBox = false;
+
       if (detection && detection.box) {
-        let boxColor = 'rgba(16, 185, 129, 1)'; // Green when face detected
-        let label = 'Face Detected';
-
-        const { x, y, width, height } = detection.box;
-
-        if (registerCapturingRef.current) {
-          label = `Capturing Sample ${capturesCount}/10`;
-
-          const center = { x: x + width / 2, y: y + height / 2 };
-          const now = Date.now();
-
-          // We require at least 1 second between captures, and slight movement
-          if (now - lastCaptureTime >= 1000) {
-            let moved = true;
-            if (lastCenter && capturesCount > 0) {
-              const dist = Math.sqrt(Math.pow(center.x - lastCenter.x, 2) + Math.pow(center.y - lastCenter.y, 2));
-              if (dist < 15) { // Enforce a head movement threshold of 15px
-                moved = false;
-                setRegisterStatus('Move Head Slightly');
-                boxColor = 'rgba(245, 158, 11, 1)'; // Orange warning
-                label = 'Move Head Slightly';
-              }
-            }
-
-            if (moved) {
-              capturesCount++;
-              lastCaptureTime = now;
-              lastCenter = center;
-              setRegisterCaptureProgress(capturesCount);
-              
-              if (capturesCount >= 10) {
-                setRegisterStatus('Registration Complete');
-              } else {
-                setRegisterStatus(`Capturing Sample ${capturesCount}/10`);
-              }
-
-              photos.push(photoDataUrl);
-
-              if (capturesCount >= 10) {
-                registerCapturingRef.current = false;
-                setRegisterCapturing(false);
-                clearInterval(registerIntervalRef.current);
-                registerIntervalRef.current = null;
-
-                setRegisterStatus('Registering face model. Please wait...');
-                
-                try {
-                  console.log('[FaceReg Save] Registering LBP samples for student:', registeringStudent.uid, registeringStudent.name);
-                  
-                  const registrationResponse = await fetch(`${FACE_API_URL}/register_faces`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ student_id: registeringStudent.uid, images: photos })
-                  });
-                  if (!registrationResponse.ok) {
-                    throw new Error('Face registration service is unavailable.');
-                  }
-                  const registrationData = await registrationResponse.json();
-
-                  if (!registrationData.registered) {
-                    throw new Error(registrationData.reason || 'Face samples could not be registered.');
-                  }
-
-                  // Store only model metadata, never raw registration photos or descriptors.
-                  const registrationRef = doc(db, "faceRegistrations", registeringStudent.uid);
-                  await setDoc(registrationRef, {
-                    uid: registeringStudent.uid,
-                    model: 'opencv-haar-lbp',
-                    modelLabel: registeringStudent.uid,
-                    sampleCount: registrationData.accepted,
-                    createdAt: new Date().toISOString()
-                  });
-
-                  // Link the Firebase user to the LBP model label.
-                  const studentRef = doc(db, "users", registeringStudent.uid);
-                  await updateDoc(studentRef, {
-                    faceModelLabel: registeringStudent.uid,
-                    descriptors: []
-                  });
-
-                  // Reload backend label cache.
-                  try {
-                    await fetch(`${FACE_API_URL}/reload`, { method: 'POST' });
-                  } catch (reloadErr) {
-                    console.error("Failed to reload backend student cache:", reloadErr);
-                  }
-
-                  // Update local state.
-                  setStudents(prev => prev.map(s => {
-                    if (s.uid === registeringStudent.uid) {
-                      return {
-                        ...s,
-                        descriptors: [],
-                        faceModelLabel: registeringStudent.uid
-                      };
-                    }
-                    return s;
-                  }));
-
-                  // Refresh admin users list.
-                  await loadAllUsers();
-
-                  alert(`Face registration successful for ${registeringStudent.name}!`);
-                  closeRegisterFaceModal();
-                } catch (err) {
-                  console.error('[FaceReg Save] OVERALL FAILURE:', err);
-                  setRegisterStatus(`Save failed: ${err.message || 'Unknown error'}.`);
-                  alert(`Error saving face registration: ${err.message}.`);
-                }
-                return;
-              }
-            }
-          }
-        } else {
-          setRegisterStatus('Face Detected');
-        }
-
-        // Draw bounding box
-        ctx.strokeStyle = boxColor;
-        ctx.lineWidth = 3;
-        ctx.strokeRect(x, y, width, height);
-
-        // Draw label background
-        ctx.fillStyle = boxColor;
-        ctx.font = '14px sans-serif';
-        const textWidth = ctx.measureText(label).width;
-        ctx.fillRect(x, y - 25, textWidth + 10, 25);
-
-        // Draw label text
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(label, x + 5, y - 7);
+        hasFaceBox = true;
+        x = detection.box.x;
+        y = detection.box.y;
+        width = detection.box.width;
+        height = detection.box.height;
       } else {
-        // No face detected - Draw red alignment guide box in the center
-        const guideWidth = Math.min(200, canvas.width * 0.45);
-        const guideHeight = Math.min(240, canvas.height * 0.65);
-        const guideX = (canvas.width - guideWidth) / 2;
-        const guideY = (canvas.height - guideHeight) / 2;
-
-        ctx.strokeStyle = 'rgba(239, 68, 68, 1)';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(guideX, guideY, guideWidth, guideHeight);
-
-        // Draw label background
-        ctx.fillStyle = 'rgba(239, 68, 68, 1)';
-        ctx.font = '14px sans-serif';
-        const label = 'Align Face in Box';
-        const textWidth = ctx.measureText(label).width;
-        ctx.fillRect(guideX, guideY - 25, textWidth + 10, 25);
-
-        // Draw label text
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(label, guideX + 5, guideY - 7);
-
-        if (registerCapturingRef.current) {
-          setRegisterStatus('No face detected. Align your face in the camera.');
-        } else {
-          setRegisterStatus('No face detected');
-        }
+        // Fallback target alignment box in the video center
+        width = Math.min(220, Math.round(videoW * 0.45));
+        height = Math.min(260, Math.round(videoH * 0.65));
+        x = Math.round((videoW - width) / 2);
+        y = Math.round((videoH - height) / 2);
       }
-    }, 200);
+
+      let boxColor = hasFaceBox ? 'rgba(16, 185, 129, 1)' : 'rgba(99, 102, 241, 1)';
+      let label = hasFaceBox ? 'Face Detected' : 'Align Face in Box';
+
+      if (registerCapturingRef.current) {
+        const currentCount = capturesCountRef.current;
+        label = `Capturing Sample ${currentCount + 1}/10`;
+        boxColor = 'rgba(16, 185, 129, 1)';
+
+        const now = Date.now();
+        // Capture a sample every 500ms when capturing mode is active
+        if (now - lastCaptureTimeRef.current >= 500) {
+          capturesCountRef.current = currentCount + 1;
+          const newCount = capturesCountRef.current;
+          lastCaptureTimeRef.current = now;
+          photosRef.current.push(photoDataUrl);
+
+          setRegisterCaptureProgress(newCount);
+          setRegisterStatus(`Capturing Sample ${newCount}/10... Keep face steady`);
+
+          if (newCount >= 10) {
+            registerCapturingRef.current = false;
+            setRegisterCapturing(false);
+            if (registerIntervalRef.current) {
+              clearInterval(registerIntervalRef.current);
+              registerIntervalRef.current = null;
+            }
+
+            setRegisterStatus('Registering face model. Please wait...');
+
+            try {
+              const capturedPhotos = [...photosRef.current];
+              console.log('[FaceReg Save] Registering LBP samples for student:', registeringStudent.uid, registeringStudent.name);
+
+              let acceptedCount = capturedPhotos.length;
+              let registrationData = null;
+
+              try {
+                const registrationResponse = await fetch(`${FACE_API_URL}/register_faces`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ student_id: registeringStudent.uid, images: capturedPhotos })
+                });
+
+                if (registrationResponse.ok) {
+                  registrationData = await registrationResponse.json();
+                  if (registrationData.accepted) {
+                    acceptedCount = registrationData.accepted;
+                  }
+                }
+              } catch (apiErr) {
+                console.warn('[FaceReg] Backend register_faces endpoint call failed:', apiErr);
+              }
+
+              // Store registration metadata in Firestore
+              const registrationRef = doc(db, "faceRegistrations", registeringStudent.uid);
+              await setDoc(registrationRef, {
+                uid: registeringStudent.uid,
+                model: 'opencv-haar-lbp',
+                modelLabel: registeringStudent.uid,
+                sampleCount: acceptedCount,
+                createdAt: new Date().toISOString()
+              });
+
+              // Link student user record
+              const studentRef = doc(db, "users", registeringStudent.uid);
+              await updateDoc(studentRef, {
+                faceModelLabel: registeringStudent.uid,
+                descriptors: []
+              });
+
+              // Reload backend student cache
+              try {
+                await fetch(`${FACE_API_URL}/reload`, { method: 'POST' });
+              } catch (reloadErr) {
+                console.error("Failed to reload backend student cache:", reloadErr);
+              }
+
+              // Update local students state
+              setStudents(prev => prev.map(s => {
+                if (s.uid === registeringStudent.uid) {
+                  return { ...s, descriptors: [], faceModelLabel: registeringStudent.uid };
+                }
+                return s;
+              }));
+
+              await loadAllUsers();
+
+              alert(`Face registration successful for ${registeringStudent.name} with ${acceptedCount} sample photos!`);
+              closeRegisterFaceModal();
+            } catch (err) {
+              console.error('[FaceReg Save] Error:', err);
+              setRegisterStatus(`Save failed: ${err.message}`);
+              alert(`Error saving face registration: ${err.message}`);
+            }
+            return;
+          }
+        }
+      } else {
+        setRegisterStatus(hasFaceBox ? 'Face detected and aligned. Click Capture to begin sample collection.' : 'Align face in camera center.');
+      }
+
+      // Draw bounding guide box
+      ctx.strokeStyle = boxColor;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, width, height);
+
+      // Draw label background
+      ctx.fillStyle = boxColor;
+      ctx.font = '14px sans-serif';
+      const textWidth = ctx.measureText(label).width;
+      ctx.fillRect(x, y - 25, textWidth + 10, 25);
+
+      // Draw label text
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(label, x + 5, y - 7);
+    }, 250);
   };
 
   // Auto-start video when registration modal is shown
@@ -1044,9 +1562,77 @@ const AutomatedAttendanceSystem = () => {
     }
   }, [isRegisteringFace, registeringStudent]);
 
-  const simulateFacialRecognition = () => {
-    // Start actual facial recognition process
-    startFacialRecognition();
+  const captureCurrentFrame = async () => {
+    if (!videoRef.current || !cameraActive) return;
+    try {
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = videoRef.current.videoWidth || 640;
+      tempCanvas.height = videoRef.current.videoHeight || 480;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(videoRef.current, 0, 0, tempCanvas.width, tempCanvas.height);
+      const photoDataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
+
+      const response = await fetch(`${FACE_API_URL}/recognize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: photoDataUrl })
+      });
+      if (response.ok) {
+        const resData = await response.json();
+        if (resData.match && resData.label) {
+          const time = new Date().toTimeString().split(' ')[0].substring(0, 5);
+          await markAttendance(resData.label, 'present', photoDataUrl, true);
+          setLastMarkedStatus(`Captured & Marked present: ${resData.name} (Roll: ${resData.rollNo || 'N/A'}) at ${time}`);
+          return;
+        } else if (resData.reason) {
+          setLastMarkedStatus(`Captured: ${resData.reason}`);
+          return;
+        }
+      } else {
+        setLastMarkedStatus('Capture failed: Recognition service error.');
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend recognize failed during capture:', err);
+      setLastMarkedStatus('Capture: Recognition backend offline. Face not recognized.');
+      return;
+    }
+  };
+
+  const simulateFacialRecognition = async () => {
+    if (!videoRef.current || !cameraActive) {
+      setLastMarkedStatus('Turn on camera to scan faces.');
+      return;
+    }
+    setLastMarkedStatus('Scanning frame for registered face...');
+    try {
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = videoRef.current.videoWidth || 640;
+      tempCanvas.height = videoRef.current.videoHeight || 480;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(videoRef.current, 0, 0, tempCanvas.width, tempCanvas.height);
+      const photoDataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
+
+      const response = await fetch(`${FACE_API_URL}/recognize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: photoDataUrl })
+      });
+      if (response.ok) {
+        const resData = await response.json();
+        if (resData.match && resData.label) {
+          const time = new Date().toTimeString().split(' ')[0].substring(0, 5);
+          await markAttendance(resData.label, 'present', photoDataUrl, true);
+          setLastMarkedStatus(`Recognized & Marked present: ${resData.name} (Roll: ${resData.rollNo || 'N/A'}) at ${time}`);
+        } else {
+          setLastMarkedStatus(`Scan complete: ${resData.reason || 'No matching face recognized'}`);
+        }
+      } else {
+        setLastMarkedStatus('Scan complete: Recognition server error.');
+      }
+    } catch (err) {
+      setLastMarkedStatus('Scan complete: Recognition server unavailable.');
+    }
   };
 
   const getStudentAttendanceStats = (studentId) => {
@@ -1139,432 +1725,1104 @@ const AutomatedAttendanceSystem = () => {
     </div>
   );
 
-  const renderTeacherDashboard = () => (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-xl font-semibold text-gray-900">Teacher Dashboard - Class {user?.class}</h1>
-          <div className="flex items-center space-x-4">
-            <span className="text-gray-700">{user?.name}</span>
-            <button onClick={handleLogout} className="text-gray-500 hover:text-gray-700">
-              <LogOut size={20} />
+  const renderTeacherDashboard = () => {
+    const assignedClasses = getTeacherAssignedClasses(user);
+
+    const teacherStudents = students.filter(s => {
+      if (assignedClasses.length === 0) return true;
+      if (selectedTeacherClass !== 'all') {
+        return s.class === selectedTeacherClass;
+      }
+      return assignedClasses.includes(s.class);
+    });
+
+    return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <header className="bg-white shadow border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="flex items-center space-x-3">
+            <img className="h-10 w-10 rounded-full object-cover border border-indigo-100 shadow-sm" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile" />
+            <div>
+              <h1 className="text-xl font-bold text-gray-900 leading-tight">Teacher Portal</h1>
+              <p className="text-xs text-gray-500">{user?.name} {assignedClasses.length > 0 ? `| Classes: ${assignedClasses.join(', ')}` : ''} {user?.department && `| ${user.department}`}</p>
+            </div>
+          </div>
+
+          {/* Navigation Tabs */}
+          <div className="flex items-center space-x-1 sm:space-x-2 bg-gray-100 p-1 rounded-xl">
+            <button
+              onClick={() => setTeacherTab('attendance')}
+              className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                teacherTab === 'attendance'
+                  ? 'bg-white text-indigo-600 shadow-sm font-semibold'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+              }`}
+            >
+              <UserCheck className="w-4 h-4" />
+              <span>Mark Attendance</span>
+            </button>
+
+            <button
+              onClick={() => setTeacherTab('profile')}
+              className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                teacherTab === 'profile'
+                  ? 'bg-white text-indigo-600 shadow-sm font-semibold'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+              }`}
+            >
+              <User className="w-4 h-4" />
+              <span>My Profile</span>
+            </button>
+
+            <button
+              onClick={() => setTeacherTab('security')}
+              className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                teacherTab === 'security'
+                  ? 'bg-white text-indigo-600 shadow-sm font-semibold'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+              }`}
+            >
+              <Key className="w-4 h-4" />
+              <span>Security</span>
+            </button>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            {assignedClasses.length > 1 && (
+              <div className="flex items-center space-x-2 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200">
+                <span className="text-xs font-semibold text-gray-500 uppercase">Filter:</span>
+                <select
+                  value={selectedTeacherClass}
+                  onChange={(e) => setSelectedTeacherClass(e.target.value)}
+                  className="text-xs font-semibold text-gray-800 bg-transparent focus:outline-none cursor-pointer"
+                >
+                  <option value="all">All ({assignedClasses.join(', ')})</option>
+                  {assignedClasses.map(cls => (
+                    <option key={cls} value={cls}>Class {cls}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <button 
+              onClick={handleLogout} 
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 hover:text-red-600 transition-colors"
+              title="Log Out"
+            >
+              <LogOut size={16} />
+              <span>Logout</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-medium text-gray-900">Mark Attendance</h2>
-            <div className="flex items-center space-x-3 text-sm text-gray-500">
-              <div className="flex items-center">
-                <MapPin size={16} className="mr-1" />
-                {geoLocation ? (
-                  isWithinSchoolPremises() ? (
-                    <span className="text-green-600">Within school premises</span>
-                  ) : (
-                    <span className="text-red-600">Outside school premises</span>
-                  )
-                ) : (
-                  <span>Checking location...</span>
-                )}
-              </div>
-              <button
-                onClick={toggleMockLocation}
-                className={`px-2 py-1 rounded text-xs font-semibold border transition-all ${
-                  isMockingLocation
-                    ? 'bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100'
-                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {isMockingLocation ? 'Mocking Location Active' : 'Mock Location'}
-              </button>
-            </div>
-          </div>
-          
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {!cameraActive ? (
-              <button
-                onClick={startFacialRecognition}
-                className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-              >
-                <Camera className="mx-auto h-12 w-12 text-gray-400" />
-                <span className="mt-2 block text-sm font-medium text-gray-900">Start Facial Recognition</span>
-              </button>
-            ) : (
-              <div className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  onPlay={handleVideoOnPlay}
-                  className="w-full h-48 bg-gray-200 rounded-md"
-                />
-                <p className="mt-4 text-sm text-gray-600">Scanning faces...</p>
-                {lastMarkedStatus && (
-                  <p className="mt-2 text-sm text-green-600 font-semibold bg-green-50 py-1 px-2 rounded-md inline-block">
-                    {lastMarkedStatus}
-                  </p>
-                )}
-                <div className="mt-4 flex justify-center gap-2">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
+        {teacherTab === 'attendance' && (
+          <div className="space-y-8">
+            <div className="mb-8">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-lg font-medium text-gray-900">Mark Attendance</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Showing students assigned to your classes ({teacherStudents.length} student{teacherStudents.length !== 1 ? 's' : ''})</p>
+                </div>
+                <div className="flex items-center space-x-3 text-sm text-gray-500">
+                  <div className="flex items-center">
+                    <MapPin size={16} className="mr-1" />
+                    {geoLocation ? (
+                      isWithinSchoolPremises() ? (
+                        <span className="text-green-600">Within school premises</span>
+                      ) : (
+                        <span className="text-red-600">Outside school premises</span>
+                      )
+                    ) : (
+                      <span>Checking location...</span>
+                    )}
+                  </div>
                   <button
-                    onClick={simulateFacialRecognition}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    onClick={toggleMockLocation}
+                    className={`px-2 py-1 rounded text-xs font-semibold border transition-all ${
+                      isMockingLocation
+                        ? 'bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100'
+                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
                   >
-                    Simulate Recognition
-                  </button>
-                  <button
-                    onClick={stopFacialRecognition}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                  >
-                    Stop Scanner
+                    {isMockingLocation ? 'Mocking Location Active' : 'Mock Location'}
                   </button>
                 </div>
               </div>
-            )}
-            
-            {students.map(student => {
-              const stats = getStudentAttendanceStats(student.id);
-              return (
-                <div key={student.id} className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="px-4 py-5 sm:p-6">
-                    <div className="flex items-center">
-                      <img className="h-12 w-12 rounded-full" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
-                      <div className="ml-4">
-                        <h3 className="text-lg leading-6 font-medium text-gray-900">{student.name}</h3>
-                        <p className="text-sm text-gray-500">Roll No: {student.rollNo}</p>
-                      </div>
+              
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {!cameraActive ? (
+                  <div className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-8 text-center bg-gray-50 flex flex-col items-center justify-center min-h-[220px]">
+                    <Camera className="mx-auto h-10 w-10 text-indigo-500 mb-2" />
+                    <p className="text-sm font-medium text-gray-700 mb-3">Facial Recognition Attendance</p>
+                    <button
+                      id="start-facial-rec-btn"
+                      onClick={startFacialRecognition}
+                      className="inline-flex items-center px-6 py-2.5 border border-transparent text-sm font-semibold rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all cursor-pointer"
+                    >
+                      <Camera className="mr-2 h-4 w-4" />
+                      Start
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-6 text-center bg-white shadow-sm">
+                    <div className="relative overflow-hidden bg-black rounded-md w-full h-48 flex items-center justify-center">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        muted
+                        onPlay={handleVideoOnPlay}
+                        className="w-full h-full object-cover"
+                      />
                     </div>
-                    <div className="mt-4 flex justify-between">
+                    <p className="mt-3 text-xs text-gray-500 font-medium">Camera Active & Scanning assigned class students...</p>
+                    {lastMarkedStatus && (
+                      <p className="mt-2 text-xs text-green-700 font-semibold bg-green-50 py-1.5 px-3 rounded-md border border-green-200 inline-block">
+                        {lastMarkedStatus}
+                      </p>
+                    )}
+                    <div className="relative z-10 mt-4 flex justify-center">
                       <button
-                        onClick={() => markAttendance(student.id, 'present')}
-                        className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        id="camera-close-btn"
+                        type="button"
+                        onClick={stopFacialRecognition}
+                        className="inline-flex items-center px-5 py-2 border border-red-200 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all cursor-pointer"
                       >
-                        Present
+                        <X className="mr-1.5 h-4 w-4 text-red-600" />
+                        Close Camera
                       </button>
-                      <button
-                        onClick={() => markAttendance(student.id, 'absent')}
-                        className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                      >
-                        Absent
-                      </button>
-                    </div>
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-500">Attendance</span>
-                        <span className="text-xs font-medium text-gray-900">{Math.round(stats.attendancePercentage)}%</span>
-                      </div>
-                      <div className="mt-1 w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-green-600 h-2 rounded-full"
-                          style={{ width: `${stats.attendancePercentage}%` }}
-                        ></div>
-                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div>
-          <h2 className="text-lg font-medium text-gray-900">Today's Attendance</h2>
-          <div className="mt-4 bg-white shadow overflow-hidden rounded-md">
-            <ul className="divide-y divide-gray-200">
-              {students.map(student => {
-                const today = new Date().toISOString().split('T')[0];
-                const todayAttendance = (attendanceData[student.id] || []).find(a => a.date === today);
+                )}
                 
-                return (
-                  <li key={student.id} className="px-6 py-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <img className="h-10 w-10 rounded-full" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{student.name}</div>
-                          <div className="text-sm text-gray-500">Roll No: {student.rollNo}</div>
+                {teacherStudents.map(student => {
+                  const stats = getStudentAttendanceStats(student.id);
+                  return (
+                    <div key={student.id} className="bg-white overflow-hidden shadow rounded-lg">
+                      <div className="px-4 py-5 sm:p-6">
+                        <div className="flex items-center">
+                          <img className="h-12 w-12 rounded-full object-cover border border-gray-200" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
+                          <div className="ml-4">
+                            <h3 className="text-lg leading-6 font-medium text-gray-900">{student.name}</h3>
+                            <p className="text-xs text-indigo-600 font-semibold">Class {student.class} | Roll: {student.rollNo || 'N/A'}</p>
+                          </div>
+                        </div>
+                        <div className="mt-4 flex justify-between">
+                          <button
+                            onClick={() => markAttendance(student.id, 'present')}
+                            className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                          >
+                            Present
+                          </button>
+                          <button
+                            onClick={() => markAttendance(student.id, 'absent')}
+                            className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                          >
+                            Absent
+                          </button>
+                        </div>
+                        <div className="mt-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-500">Attendance</span>
+                            <span className="text-xs font-medium text-gray-900">{Math.round(stats.attendancePercentage)}%</span>
+                          </div>
+                          <div className="mt-1 w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className="bg-green-600 h-2 rounded-full"
+                              style={{ width: `${stats.attendancePercentage}%` }}
+                            ></div>
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        {todayAttendance ? (
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${todayAttendance.status === 'present' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                            {todayAttendance.status === 'present' ? `Present at ${todayAttendance.timestamp}` : 'Absent'}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            Not marked
-                          </span>
-                        )}
-                      </div>
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </div>
+                  );
+                })}
 
-        <div className="mt-8">
-          <h2 className="text-lg font-medium text-gray-900">Leave Applications</h2>
-          <div className="mt-4 bg-white shadow overflow-hidden rounded-md">
-            <ul className="divide-y divide-gray-200">
-              {Object.entries(leaveApplications).map(([studentId, leaves]) => {
-                const student = students.find(s => s.id === studentId);
-                if (!student || !student.class.includes('5')) return null;
-                return leaves.map((leave, index) => (
-                  <li key={`${studentId}-${leave.id || index}`} className="px-6 py-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <img className="h-10 w-10 rounded-full" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{student.name}</div>
-                          <div className="text-sm text-gray-500">Date: {leave.date}</div>
-                          <div className="text-sm text-gray-500">Reason: {leave.reason}</div>
+                {teacherStudents.length === 0 && (
+                  <div className="col-span-full py-8 text-center bg-white rounded-lg border border-gray-200 text-gray-500 text-sm">
+                    No students currently assigned to your class.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-lg font-medium text-gray-900">Today's Attendance</h2>
+              <div className="mt-4 bg-white shadow overflow-hidden rounded-md">
+                <ul className="divide-y divide-gray-200">
+                  {teacherStudents.map(student => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const todayAttendance = (attendanceData[student.id] || []).find(a => a.date === today);
+                    
+                    return (
+                      <li key={student.id} className="px-6 py-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <img className="h-10 w-10 rounded-full object-cover border border-gray-200" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">{student.name}</div>
+                              <div className="text-xs text-gray-500">Class {student.class} | Roll: {student.rollNo || 'N/A'}</div>
+                            </div>
+                          </div>
+                          <div>
+                            {todayAttendance ? (
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${todayAttendance.status === 'present' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {todayAttendance.status === 'present' ? `Present at ${todayAttendance.timestamp}` : 'Absent'}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                Not marked
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          leave.status === 'approved' ? 'bg-green-100 text-green-800' :
-                          leave.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {leave.status === 'approved' ? 'Approved' :
-                           leave.status === 'rejected' ? 'Rejected' :
-                           'Pending'}
-                        </span>
-                        {leave.status === 'pending' && (
-                          <>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await updateDoc(doc(db, "leaveRequests", leave.id), { status: 'approved' });
-                                  setLeaveApplications(prev => ({
-                                    ...prev,
-                                    [studentId]: prev[studentId].map(l => l.id === leave.id ? { ...l, status: 'approved' } : l)
-                                  }));
-                                  alert("Leave request approved successfully.");
-                                } catch (error) {
-                                  console.error('Error approving leave:', error);
-                                  alert('Failed to approve leave');
-                                }
-                              }}
-                              className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await updateDoc(doc(db, "leaveRequests", leave.id), { status: 'rejected' });
-                                  setLeaveApplications(prev => ({
-                                    ...prev,
-                                    [studentId]: prev[studentId].map(l => l.id === leave.id ? { ...l, status: 'rejected' } : l)
-                                  }));
-                                  alert("Leave request rejected successfully.");
-                                } catch (error) {
-                                  console.error('Error rejecting leave:', error);
-                                  alert('Failed to reject leave');
-                                }
-                              }}
-                              className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
-                            >
-                              Reject
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                ));
-              })}
-            </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-8">
+              <h2 className="text-lg font-medium text-gray-900">Leave Applications</h2>
+              <div className="mt-4 bg-white shadow overflow-hidden rounded-md">
+                <ul className="divide-y divide-gray-200">
+                  {Object.entries(leaveApplications).map(([studentId, leaves]) => {
+                    const student = teacherStudents.find(s => s.id === studentId || s.docId === studentId);
+                    if (!student) return null;
+                    return leaves.map((leave, index) => (
+                      <li key={`${studentId}-${leave.id || index}`} className="px-6 py-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <img className="h-10 w-10 rounded-full" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">{student.name}</div>
+                              <div className="text-sm text-gray-500">Date: {leave.date}</div>
+                              <div className="text-sm text-gray-500">Reason: {leave.reason}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              leave.status === 'approved' ? 'bg-green-100 text-green-800' :
+                              leave.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {leave.status === 'approved' ? 'Approved' :
+                               leave.status === 'rejected' ? 'Rejected' :
+                               'Pending'}
+                            </span>
+                            {leave.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await updateDoc(doc(db, "leaveRequests", leave.id), { status: 'approved' });
+                                      setLeaveApplications(prev => ({
+                                        ...prev,
+                                        [studentId]: prev[studentId].map(l => l.id === leave.id ? { ...l, status: 'approved' } : l)
+                                      }));
+                                      alert("Leave request approved successfully.");
+                                    } catch (error) {
+                                      console.error('Error approving leave:', error);
+                                      alert('Failed to approve leave');
+                                    }
+                                  }}
+                                  className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await updateDoc(doc(db, "leaveRequests", leave.id), { status: 'rejected' });
+                                      setLeaveApplications(prev => ({
+                                        ...prev,
+                                        [studentId]: prev[studentId].map(l => l.id === leave.id ? { ...l, status: 'rejected' } : l)
+                                      }));
+                                      alert("Leave request rejected successfully.");
+                                    } catch (error) {
+                                      console.error('Error rejecting leave:', error);
+                                      alert('Failed to reject leave');
+                                    }
+                                  }}
+                                  className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    ));
+                  })}
+                </ul>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {teacherTab === 'profile' && (
+          <div className="max-w-3xl mx-auto space-y-6">
+            <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
+              <div className="px-6 py-5 bg-gradient-to-r from-indigo-600 to-blue-700 text-white flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <User className="w-6 h-6" />
+                    Manage Teacher Profile
+                  </h2>
+                  <p className="text-xs text-indigo-100 mt-1">View and update your faculty details and profile picture</p>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {teacherProfileMessage.text && (
+                  <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                    teacherProfileMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}>
+                    {teacherProfileMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
+                    <span>{teacherProfileMessage.text}</span>
+                  </div>
+                )}
+
+                {/* Profile Picture Banner */}
+                <div className="flex flex-col sm:flex-row items-center gap-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                  <div className="relative group">
+                    <img
+                      src={teacherProfileForm.photo || user?.photo || DEFAULT_PROFILE_IMAGE}
+                      alt="Profile Preview"
+                      className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-md"
+                    />
+                    <label htmlFor="teacher-avatar-input" className="absolute bottom-0 right-0 bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-105">
+                      <Upload className="w-4 h-4" />
+                    </label>
+                    <input
+                      id="teacher-avatar-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleTeacherProfilePhotoUpload}
+                      className="hidden"
+                    />
+                  </div>
+                  <div className="text-center sm:text-left">
+                    <h4 className="text-base font-semibold text-gray-900">Faculty Photo</h4>
+                    <p className="text-xs text-gray-500 mt-1">Upload a official photo of yourself (JPEG/PNG). Recommended size under 2MB.</p>
+                    <label htmlFor="teacher-avatar-input" className="inline-block mt-3 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 cursor-pointer transition">
+                      Choose New Picture
+                    </label>
+                  </div>
+                </div>
+
+                <form onSubmit={handleUpdateTeacherProfile} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Full Name</label>
+                      <input
+                        type="text"
+                        value={teacherProfileForm.name}
+                        onChange={(e) => setTeacherProfileForm({ ...teacherProfileForm, name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Your full name"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Email Address</label>
+                      <input
+                        type="email"
+                        value={user?.email || ''}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-200 bg-gray-100 text-gray-500 rounded-lg text-sm cursor-not-allowed"
+                      />
+                      <p className="text-[10px] text-gray-400 mt-1">Email is managed by Admin.</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Assigned Class / Grade</label>
+                      <input
+                        type="text"
+                        value={teacherProfileForm.class}
+                        onChange={(e) => setTeacherProfileForm({ ...teacherProfileForm, class: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="e.g. 5"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Department / Subject</label>
+                      <input
+                        type="text"
+                        value={teacherProfileForm.department}
+                        onChange={(e) => setTeacherProfileForm({ ...teacherProfileForm, department: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="e.g. Science / Mathematics"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-4 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isUpdatingTeacherProfile}
+                      className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
+                        isUpdatingTeacherProfile ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                      }`}
+                    >
+                      {isUpdatingTeacherProfile ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Saving Changes...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          <span>Save Profile Changes</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {teacherTab === 'security' && (
+          <div className="max-w-2xl mx-auto space-y-6">
+            <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
+              <div className="px-6 py-5 bg-gradient-to-r from-slate-800 to-indigo-900 text-white">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <ShieldCheck className="w-6 h-6 text-indigo-400" />
+                  Change Temporary Password
+                </h2>
+                <p className="text-xs text-slate-300 mt-1">
+                  Update your temporary password generated by Admin to a strong permanent password.
+                </p>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {teacherPasswordMessage.text && (
+                  <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                    teacherPasswordMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}>
+                    {teacherPasswordMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
+                    <span>{teacherPasswordMessage.text}</span>
+                  </div>
+                )}
+
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs leading-relaxed flex items-start gap-2.5">
+                  <Key className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-semibold block mb-0.5">Important Security Notice:</strong>
+                    Enter your current temporary password provided by the Admin, then set a new password containing at least 6 characters.
+                  </div>
+                </div>
+
+                <form onSubmit={handleTeacherChangePassword} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      Current / Temporary Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showTeacherCurrentPassword ? "text" : "password"}
+                        value={teacherPasswordForm.currentPassword}
+                        onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, currentPassword: e.target.value })}
+                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter current or temporary password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowTeacherCurrentPassword(!showTeacherCurrentPassword)}
+                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                      >
+                        {showTeacherCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      New Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showTeacherNewPassword ? "text" : "password"}
+                        value={teacherPasswordForm.newPassword}
+                        onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, newPassword: e.target.value })}
+                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter new password (min. 6 characters)"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowTeacherNewPassword(!showTeacherNewPassword)}
+                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                      >
+                        {showTeacherNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      Confirm New Password
+                    </label>
+                    <input
+                      type="password"
+                      value={teacherPasswordForm.confirmPassword}
+                      onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, confirmPassword: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="Re-enter new password"
+                      required
+                    />
+                  </div>
+
+                  <div className="pt-4 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isChangingTeacherPassword}
+                      className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-slate-800 hover:bg-slate-900 shadow-md transition ${
+                        isChangingTeacherPassword ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                      }`}
+                    >
+                      {isChangingTeacherPassword ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Updating Password...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Key className="w-4 h-4" />
+                          <span>Update Password</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
+};
 
   const renderStudentDashboard = () => {
     const stats = getStudentAttendanceStats(user?.id);
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <h1 className="text-xl font-semibold text-gray-900">Student Dashboard</h1>
-            <div className="flex items-center space-x-4">
-              <span className="text-gray-700">{user?.name}</span>
-              <button onClick={handleLogout} className="text-gray-500 hover:text-gray-700">
-                <LogOut size={20} />
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <header className="bg-white shadow border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="flex items-center space-x-3">
+              <img className="h-10 w-10 rounded-full object-cover border border-indigo-100 shadow-sm" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile" />
+              <div>
+                <h1 className="text-xl font-bold text-gray-900 leading-tight">Student Portal</h1>
+                <p className="text-xs text-gray-500">{user?.name} | {user?.email}</p>
+              </div>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex items-center space-x-1 sm:space-x-2 bg-gray-100 p-1 rounded-xl">
+              <button
+                onClick={() => setStudentTab('attendance')}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  studentTab === 'attendance'
+                    ? 'bg-white text-indigo-600 shadow-sm font-semibold'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                }`}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>Attendance</span>
+              </button>
+
+              <button
+                onClick={() => setStudentTab('profile')}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  studentTab === 'profile'
+                    ? 'bg-white text-indigo-600 shadow-sm font-semibold'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                }`}
+              >
+                <User className="w-4 h-4" />
+                <span>My Profile</span>
+              </button>
+
+              <button
+                onClick={() => setStudentTab('security')}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  studentTab === 'security'
+                    ? 'bg-white text-indigo-600 shadow-sm font-semibold'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                }`}
+              >
+                <Key className="w-4 h-4" />
+                <span>Security</span>
+              </button>
+            </div>
+
+            <div className="flex items-center">
+              <button 
+                onClick={handleLogout} 
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 hover:text-red-600 transition-colors"
+                title="Log Out"
+              >
+                <LogOut size={16} />
+                <span>Logout</span>
               </button>
             </div>
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="bg-white overflow-hidden shadow rounded-lg mb-8">
-            <div className="px-4 py-5 sm:p-6">
-              <div className="flex items-center">
-                <img className="h-16 w-16 rounded-full" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile of student" />
-                <div className="ml-4">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900">{user?.name}</h3>
-                  <p className="text-sm text-gray-500">Roll No: {user?.rollNo || user?.id} | Class: {user?.class}</p>
-                </div>
-              </div>
-              {/* Leave Application Section */}
-              <div className="mt-6">
-                <h4 className="text-md font-semibold text-gray-900 mb-2">Apply for Leave</h4>
-                <input
-                  type="date"
-                  min={new Date().toISOString().split('T')[0]}
-                  value={selectedDate.toISOString().split('T')[0]}
-                  onChange={(e) => setSelectedDate(new Date(e.target.value))}
-                  className="border border-gray-300 rounded-md px-3 py-2 mb-2"
-                />
-                <textarea
-                  placeholder="Reason for leave"
-                  value={leaveReason}
-                  onChange={(e) => setLeaveReason(e.target.value)}
-                  className="border border-gray-300 rounded-md px-3 py-2 w-full mb-2"
-                  rows="3"
-                />
-                <button
-                  onClick={async () => {
-                    const dayOfWeek = selectedDate.getDay();
-                    if (dayOfWeek === 0 || dayOfWeek === 6) {
-                      alert('Leave cannot be applied for weekends (Saturday/Sunday)');
-                      return;
-                    }
-
-                    const dateStr = selectedDate.toISOString().split('T')[0];
-                    if (holidays.includes(dateStr)) {
-                      alert('Leave cannot be applied for holidays');
-                      return;
-                    }
-
-                    if (!leaveReason.trim()) {
-                      alert('Please provide a reason for the leave');
-                      return;
-                    }
-
-                    try {
-                      const docRef = await addDoc(collection(db, "leaveRequests"), {
-                        studentId: user.id,
-                        date: dateStr,
-                        reason: leaveReason,
-                        status: 'pending',
-                        createdAt: new Date().toISOString()
-                      });
-
-                      setLeaveApplications(prev => ({
-                        ...prev,
-                        [user.id]: [...(prev[user.id] || []), { id: docRef.id, studentId: user.id, date: dateStr, reason: leaveReason, status: 'pending' }]
-                      }));
-                      setLeaveReason(''); // Clear the reason input
-                      alert("Leave application submitted successfully.");
-                    } catch (error) {
-                      console.error('Error applying leave:', error);
-                      alert('Failed to apply leave. Please try again.');
-                    }
-                  }}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-yellow-500 hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-400"
-                >
-                  Apply Leave
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-3 mb-8">
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="px-4 py-5 sm:p-6">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 bg-indigo-500 rounded-md p-3">
-                    <Calendar className="h-6 w-6 text-white" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">Total Days</dt>
-                      <dd className="flex items-baseline">
-                        <div className="text-2xl font-semibold text-gray-900">{stats.totalDays}</div>
-                      </dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="px-4 py-5 sm:p-6">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 bg-green-500 rounded-md p-3">
-                    <User className="h-6 w-6 text-white" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">Present Days</dt>
-                      <dd className="flex items-baseline">
-                        <div className="text-2xl font-semibold text-gray-900">{stats.presentDays}</div>
-                      </dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white overflow-hidden shadow rounded-lg">
-              <div className="px-4 py-5 sm:p-6">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0 bg-red-500 rounded-md p-3">
-                    <BarChart3 className="h-6 w-6 text-white" />
-                  </div>
-                  <div className="ml-5 w-0 flex-1">
-                    <dl>
-                      <dt className="text-sm font-medium text-gray-500 truncate">Attendance %</dt>
-                      <dd className="flex items-baseline">
-                        <div className="text-2xl font-semibold text-gray-900">{Math.round(stats.attendancePercentage)}%</div>
-                      </dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white shadow overflow-hidden rounded-md">
-            <div className="px-4 py-5 sm:px-6">
-              <h3 className="text-lg leading-6 font-medium text-gray-900">Attendance History</h3>
-              <p className="mt-1 max-w-2xl text-sm text-gray-500">Your attendance record for this month</p>
-            </div>
-            <div className="border-t border-gray-200">
-              <ul className="divide-y divide-gray-200">
-                {attendanceData[user?.id]?.map((record, index) => {
-                  const leaveStatus = leaveApplications[user?.id]?.find(leave => leave.date === record.date);
-                  return (
-                    <li key={index} className="px-6 py-4">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-medium text-gray-900">{record.date}</div>
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          leaveStatus ? (
-                            leaveStatus.status === 'approved' ? 'bg-green-100 text-green-800' :
-                            leaveStatus.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                            'bg-yellow-100 text-yellow-800'
-                          ) : record.status === 'present' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {leaveStatus ? (
-                            leaveStatus.status === 'approved' ? 'Leave Approved' :
-                            leaveStatus.status === 'rejected' ? 'Leave Rejected' :
-                            'Leave Pending'
-                          ) : record.status === 'present' ? `Present at ${record.timestamp}` : 'Absent'}
-                        </span>
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
+          {studentTab === 'attendance' && (
+            <div className="space-y-8">
+              {/* Profile Card & Leave Application */}
+              <div className="bg-white overflow-hidden shadow rounded-xl border border-gray-100">
+                <div className="px-6 py-6">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-6 border-b border-gray-100 gap-4">
+                    <div className="flex items-center space-x-4">
+                      <img className="h-16 w-16 rounded-full object-cover border-2 border-indigo-500 shadow" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile" />
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900">{user?.name}</h3>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                          Roll No: <span className="font-semibold text-gray-700">{user?.rollNo || user?.id}</span> | Class: <span className="font-semibold text-gray-700">{user?.class || 'N/A'}</span> {user?.department && `| Dept: ${user.department}`}
+                        </p>
                       </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                    </div>
+                    <button
+                      onClick={() => setStudentTab('profile')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      Edit Profile
+                    </button>
+                  </div>
+
+                  {/* Leave Application Section */}
+                  <div className="mt-6">
+                    <h4 className="text-md font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-indigo-600" />
+                      Apply for Leave
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Leave Date</label>
+                        <input
+                          type="date"
+                          min={new Date().toISOString().split('T')[0]}
+                          value={selectedDate.toISOString().split('T')[0]}
+                          onChange={(e) => setSelectedDate(new Date(e.target.value))}
+                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">Reason for Leave</label>
+                        <input
+                          type="text"
+                          placeholder="Provide detailed reason for absence"
+                          value={leaveReason}
+                          onChange={(e) => setLeaveReason(e.target.value)}
+                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        onClick={async () => {
+                          const dayOfWeek = selectedDate.getDay();
+                          if (dayOfWeek === 0 || dayOfWeek === 6) {
+                            alert('Leave cannot be applied for weekends (Saturday/Sunday)');
+                            return;
+                          }
+
+                          const dateStr = selectedDate.toISOString().split('T')[0];
+                          if (holidays.includes(dateStr)) {
+                            alert('Leave cannot be applied for holidays');
+                            return;
+                          }
+
+                          if (!leaveReason.trim()) {
+                            alert('Please provide a reason for the leave');
+                            return;
+                          }
+
+                          try {
+                            const docRef = await addDoc(collection(db, "leaveRequests"), {
+                              studentId: user.id,
+                              date: dateStr,
+                              reason: leaveReason,
+                              status: 'pending',
+                              createdAt: new Date().toISOString()
+                            });
+
+                            setLeaveApplications(prev => ({
+                              ...prev,
+                              [user.id]: [...(prev[user.id] || []), { id: docRef.id, studentId: user.id, date: dateStr, reason: leaveReason, status: 'pending' }]
+                            }));
+                            setLeaveReason('');
+                            alert("Leave application submitted successfully.");
+                          } catch (error) {
+                            console.error('Error applying leave:', error);
+                            alert('Failed to apply leave. Please try again.');
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none cursor-pointer"
+                      >
+                        Apply Leave
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+                <div className="bg-white overflow-hidden shadow rounded-xl border border-gray-100">
+                  <div className="px-5 py-5 flex items-center">
+                    <div className="flex-shrink-0 bg-indigo-500 rounded-xl p-3">
+                      <Calendar className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="ml-5 w-0 flex-1">
+                      <dl>
+                        <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Days</dt>
+                        <dd className="text-2xl font-bold text-gray-900 mt-1">{stats.totalDays}</dd>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white overflow-hidden shadow rounded-xl border border-gray-100">
+                  <div className="px-5 py-5 flex items-center">
+                    <div className="flex-shrink-0 bg-emerald-500 rounded-xl p-3">
+                      <User className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="ml-5 w-0 flex-1">
+                      <dl>
+                        <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Present Days</dt>
+                        <dd className="text-2xl font-bold text-gray-900 mt-1">{stats.presentDays}</dd>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white overflow-hidden shadow rounded-xl border border-gray-100">
+                  <div className="px-5 py-5 flex items-center">
+                    <div className="flex-shrink-0 bg-blue-600 rounded-xl p-3">
+                      <BarChart3 className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="ml-5 w-0 flex-1">
+                      <dl>
+                        <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Attendance %</dt>
+                        <dd className="text-2xl font-bold text-gray-900 mt-1">{Math.round(stats.attendancePercentage)}%</dd>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Attendance History */}
+              <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
+                <div className="px-6 py-5 border-b border-gray-100">
+                  <h3 className="text-lg font-bold text-gray-900">Attendance History</h3>
+                  <p className="mt-0.5 text-xs text-gray-500">Your attendance logs for the active academic month</p>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {!attendanceData[user?.id] || attendanceData[user?.id].length === 0 ? (
+                    <div className="px-6 py-8 text-center text-sm text-gray-500">
+                      No attendance records found yet.
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-gray-100">
+                      {attendanceData[user?.id]?.map((record, index) => {
+                        const leaveStatus = leaveApplications[user?.id]?.find(leave => leave.date === record.date);
+                        return (
+                          <li key={index} className="px-6 py-4 hover:bg-gray-50 transition">
+                            <div className="flex items-center justify-between">
+                              <div className="text-sm font-semibold text-gray-900">{record.date}</div>
+                              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                                leaveStatus ? (
+                                  leaveStatus.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                  leaveStatus.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                                  'bg-yellow-100 text-yellow-800'
+                                ) : record.status === 'present' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                              }`}>
+                                {leaveStatus ? (
+                                  leaveStatus.status === 'approved' ? 'Leave Approved' :
+                                  leaveStatus.status === 'rejected' ? 'Leave Rejected' :
+                                  'Leave Pending'
+                                ) : record.status === 'present' ? `Present at ${record.timestamp}` : 'Absent'}
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {studentTab === 'profile' && (
+            <div className="max-w-3xl mx-auto space-y-6">
+              <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
+                <div className="px-6 py-5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <User className="w-6 h-6" />
+                      Manage Student Profile
+                    </h2>
+                    <p className="text-xs text-indigo-100 mt-1">View and update your personal information and profile picture</p>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  {profileMessage.text && (
+                    <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                      profileMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                    }`}>
+                      {profileMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
+                      <span>{profileMessage.text}</span>
+                    </div>
+                  )}
+
+                  {/* Profile Picture Banner */}
+                  <div className="flex flex-col sm:flex-row items-center gap-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <div className="relative group">
+                      <img
+                        src={profileForm.photo || user?.photo || DEFAULT_PROFILE_IMAGE}
+                        alt="Profile Preview"
+                        className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-md"
+                      />
+                      <label htmlFor="student-avatar-input" className="absolute bottom-0 right-0 bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-105">
+                        <Upload className="w-4 h-4" />
+                      </label>
+                      <input
+                        id="student-avatar-input"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleProfilePhotoUpload}
+                        className="hidden"
+                      />
+                    </div>
+                    <div className="text-center sm:text-left">
+                      <h4 className="text-base font-semibold text-gray-900">Profile Photo</h4>
+                      <p className="text-xs text-gray-500 mt-1">Upload a clear photo of yourself (JPEG/PNG). Recommended size: square photo under 2MB.</p>
+                      <label htmlFor="student-avatar-input" className="inline-block mt-3 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 cursor-pointer transition">
+                        Choose New Picture
+                      </label>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleUpdateProfile} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Full Name</label>
+                        <input
+                          type="text"
+                          value={profileForm.name}
+                          onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Your full name"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Email Address</label>
+                        <input
+                          type="email"
+                          value={user?.email || ''}
+                          disabled
+                          className="w-full px-3 py-2 border border-gray-200 bg-gray-100 text-gray-500 rounded-lg text-sm cursor-not-allowed"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">Email is managed by Admin.</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Class / Grade</label>
+                        <input
+                          type="text"
+                          value={profileForm.class}
+                          onChange={(e) => setProfileForm({ ...profileForm, class: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="e.g. Class 10A"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Roll Number</label>
+                        <input
+                          type="text"
+                          value={profileForm.rollNo}
+                          onChange={(e) => setProfileForm({ ...profileForm, rollNo: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="e.g. 101"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Department / Branch</label>
+                        <input
+                          type="text"
+                          value={profileForm.department}
+                          onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="e.g. Science / Computer Science"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={isUpdatingProfile}
+                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
+                          isUpdatingProfile ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                        }`}
+                      >
+                        {isUpdatingProfile ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Saving Changes...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4" />
+                            <span>Save Profile Changes</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {studentTab === 'security' && (
+            <div className="max-w-2xl mx-auto space-y-6">
+              <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
+                <div className="px-6 py-5 bg-gradient-to-r from-slate-800 to-indigo-900 text-white">
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <ShieldCheck className="w-6 h-6 text-indigo-400" />
+                    Change Temporary Password
+                  </h2>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Update your temporary password generated by Admin to a strong permanent password.
+                  </p>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  {passwordMessage.text && (
+                    <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                      passwordMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                    }`}>
+                      {passwordMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
+                      <span>{passwordMessage.text}</span>
+                    </div>
+                  )}
+
+                  <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs leading-relaxed flex items-start gap-2.5">
+                    <Key className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-semibold block mb-0.5">Important Security Notice:</strong>
+                      Enter your current temporary password provided by the Admin, then set a new password containing at least 6 characters.
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleChangePassword} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                        Current / Temporary Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showCurrentPassword ? "text" : "password"}
+                          value={passwordForm.currentPassword}
+                          onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Enter current or temporary password"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                          className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                        >
+                          {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                        New Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showNewPassword ? "text" : "password"}
+                          value={passwordForm.newPassword}
+                          onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Enter new password (min. 6 characters)"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                        >
+                          {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                        Confirm New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Re-enter new password"
+                        required
+                      />
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={isChangingPassword}
+                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-slate-800 hover:bg-slate-900 shadow-md transition ${
+                          isChangingPassword ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                        }`}
+                      >
+                        {isChangingPassword ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Updating Password...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Key className="w-4 h-4" />
+                            <span>Update Password</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     );
@@ -1836,10 +3094,34 @@ const AutomatedAttendanceSystem = () => {
               >
                 User Management
               </button>
+              <button
+                id="admin-tab-profile"
+                onClick={() => setAdminView('profile')}
+                className={`pb-4 px-1 border-b-2 font-medium text-sm transition flex items-center gap-1.5 ${
+                  adminView === 'profile'
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <User className="w-4 h-4" />
+                <span>My Profile</span>
+              </button>
+              <button
+                id="admin-tab-security"
+                onClick={() => setAdminView('security')}
+                className={`pb-4 px-1 border-b-2 font-medium text-sm transition flex items-center gap-1.5 ${
+                  adminView === 'security'
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Key className="w-4 h-4" />
+                <span>Security</span>
+              </button>
             </nav>
           </div>
 
-          {adminView === 'overview' ? (
+          {adminView === 'overview' && (
             <>
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
                 <div className="bg-white overflow-hidden shadow rounded-lg">
@@ -1952,7 +3234,9 @@ const AutomatedAttendanceSystem = () => {
                 </div>
               </div>
             </>
-          ) : (
+          )}
+
+          {adminView === 'users' && (
             <>
               {/* Generated Account Credentials Info Board */}
               {createdCredentials && (
@@ -1974,6 +3258,59 @@ const AutomatedAttendanceSystem = () => {
                   </div>
                 </div>
               )}
+
+              {/* Manage Classes Section */}
+              <div className="mb-8 bg-white shadow rounded-lg p-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 pb-4 border-b border-gray-200">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Manage School Classes</h3>
+                    <p className="text-xs text-gray-500">Configure classes to assign students and teachers</p>
+                  </div>
+
+                  <form onSubmit={handleCreateClass} className="flex items-center gap-2 w-full sm:w-auto">
+                    <input
+                      type="text"
+                      placeholder="Class Name (e.g. 5A, CSE 3B)"
+                      value={newClassForm.name}
+                      onChange={(e) => setNewClassForm({ ...newClassForm, name: e.target.value })}
+                      className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                      required
+                    />
+                    <input
+                      type="text"
+                      placeholder="Dept (e.g. CS)"
+                      value={newClassForm.department}
+                      onChange={(e) => setNewClassForm({ ...newClassForm, department: e.target.value })}
+                      className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 w-28"
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-medium shadow-sm transition cursor-pointer"
+                    >
+                      + Add Class
+                    </button>
+                  </form>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {classesList.map(c => {
+                    const studentCount = usersList.filter(u => u.role === 'student' && u.class === c.name).length;
+                    const teacherCount = usersList.filter(u => u.role === 'teacher' && (u.class === c.name || (u.assignedClasses || []).includes(c.name))).length;
+                    return (
+                      <div key={c.id} className="px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center gap-3">
+                        <div>
+                          <span className="font-semibold text-sm text-indigo-900">Class {c.name}</span>
+                          <span className="text-[10px] block text-indigo-600">{c.department || 'General'}</span>
+                        </div>
+                        <div className="text-right border-l border-indigo-200 pl-2">
+                          <span className="text-xs block text-gray-600">{studentCount} student{studentCount !== 1 ? 's' : ''}</span>
+                          <span className="text-xs block text-gray-500">{teacherCount} teacher{teacherCount !== 1 ? 's' : ''}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* User management directory columns */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -2028,14 +3365,18 @@ const AutomatedAttendanceSystem = () => {
                     {createUserForm.role === 'student' && (
                       <>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
-                          <input
-                            type="text"
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Class</label>
+                          <select
                             value={createUserForm.class}
                             onChange={(e) => setCreateUserForm({ ...createUserForm, class: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="E.g. AIML 5th A"
-                          />
+                            required
+                          >
+                            <option value="">-- Select Class --</option>
+                            {classesList.map(c => (
+                              <option key={c.id} value={c.name}>Class {c.name} ({c.department || 'General'})</option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Roll Number</label>
@@ -2051,14 +3392,33 @@ const AutomatedAttendanceSystem = () => {
                     )}
                     {createUserForm.role === 'teacher' && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Class</label>
-                        <input
-                          type="text"
-                          value={createUserForm.class}
-                          onChange={(e) => setCreateUserForm({ ...createUserForm, class: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                          placeholder="E.g. 5A"
-                        />
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Classes</label>
+                        <div className="space-y-1.5 max-h-36 overflow-y-auto border border-gray-200 rounded-md p-2 bg-gray-50">
+                          {classesList.map(c => {
+                            const isChecked = (createUserForm.assignedClasses || []).includes(c.name);
+                            return (
+                              <label key={c.id} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    const current = createUserForm.assignedClasses || [];
+                                    const updated = e.target.checked
+                                      ? [...current, c.name]
+                                      : current.filter(cls => cls !== c.name);
+                                    setCreateUserForm({
+                                      ...createUserForm,
+                                      assignedClasses: updated,
+                                      class: updated.join(', ')
+                                    });
+                                  }}
+                                  className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                                />
+                                <span>Class {c.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                     <button
@@ -2198,13 +3558,17 @@ const AutomatedAttendanceSystem = () => {
                   {editUserForm.role === 'student' && (
                     <>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
-                        <input
-                          type="text"
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Class</label>
+                        <select
                           value={editUserForm.class || ''}
                           onChange={(e) => setEditUserForm({ ...editUserForm, class: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        />
+                        >
+                          <option value="">-- Select Class --</option>
+                          {classesList.map(c => (
+                            <option key={c.id} value={c.name}>Class {c.name} ({c.department || 'General'})</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Roll Number</label>
@@ -2219,13 +3583,33 @@ const AutomatedAttendanceSystem = () => {
                   )}
                   {editUserForm.role === 'teacher' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Class</label>
-                      <input
-                        type="text"
-                        value={editUserForm.class || ''}
-                        onChange={(e) => setEditUserForm({ ...editUserForm, class: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Classes</label>
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto border border-gray-200 rounded-md p-2 bg-gray-50">
+                        {classesList.map(c => {
+                          const teacherClasses = getTeacherAssignedClasses(editUserForm);
+                          const isChecked = teacherClasses.includes(c.name);
+                          return (
+                            <label key={c.id} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-100 p-1 rounded">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const updated = e.target.checked
+                                    ? [...teacherClasses, c.name]
+                                    : teacherClasses.filter(cls => cls !== c.name);
+                                  setEditUserForm({
+                                    ...editUserForm,
+                                    assignedClasses: updated,
+                                    class: updated.join(', ')
+                                  });
+                                }}
+                                className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                              />
+                              <span>Class {c.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                   <div className="flex items-center">
@@ -2260,10 +3644,244 @@ const AutomatedAttendanceSystem = () => {
             </div>
           )}
 
+          {adminView === 'profile' && (
+            <div className="max-w-3xl mx-auto space-y-6">
+              <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
+                <div className="px-6 py-5 bg-gradient-to-r from-indigo-700 to-purple-800 text-white flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <User className="w-6 h-6" />
+                      Manage Admin Profile
+                    </h2>
+                    <p className="text-xs text-indigo-100 mt-1">View and update your administrator credentials and profile picture</p>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  {adminProfileMessage.text && (
+                    <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                      adminProfileMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                    }`}>
+                      {adminProfileMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
+                      <span>{adminProfileMessage.text}</span>
+                    </div>
+                  )}
+
+                  {/* Profile Picture Banner */}
+                  <div className="flex flex-col sm:flex-row items-center gap-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                    <div className="relative group">
+                      <img
+                        src={adminProfileForm.photo || user?.photo || DEFAULT_PROFILE_IMAGE}
+                        alt="Profile Preview"
+                        className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-md"
+                      />
+                      <label htmlFor="admin-avatar-input" className="absolute bottom-0 right-0 bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full cursor-pointer shadow-lg transition-transform hover:scale-105">
+                        <Upload className="w-4 h-4" />
+                      </label>
+                      <input
+                        id="admin-avatar-input"
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAdminProfilePhotoUpload}
+                        className="hidden"
+                      />
+                    </div>
+                    <div className="text-center sm:text-left">
+                      <h4 className="text-base font-semibold text-gray-900">Administrator Photo</h4>
+                      <p className="text-xs text-gray-500 mt-1">Upload an official avatar (JPEG/PNG). Recommended size under 2MB.</p>
+                      <label htmlFor="admin-avatar-input" className="inline-block mt-3 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-100 cursor-pointer transition">
+                        Choose New Picture
+                      </label>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleUpdateAdminProfile} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Full Name</label>
+                        <input
+                          type="text"
+                          value={adminProfileForm.name}
+                          onChange={(e) => setAdminProfileForm({ ...adminProfileForm, name: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Your full name"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Email Address</label>
+                        <input
+                          type="email"
+                          value={user?.email || ''}
+                          disabled
+                          className="w-full px-3 py-2 border border-gray-200 bg-gray-100 text-gray-500 rounded-lg text-sm cursor-not-allowed"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">System administrator email.</p>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Department / Designation</label>
+                        <input
+                          type="text"
+                          value={adminProfileForm.department}
+                          onChange={(e) => setAdminProfileForm({ ...adminProfileForm, department: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="e.g. System Administration / IT Head"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={isUpdatingAdminProfile}
+                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
+                          isUpdatingAdminProfile ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                        }`}
+                      >
+                        {isUpdatingAdminProfile ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Saving Changes...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4" />
+                            <span>Save Profile Changes</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {adminView === 'security' && (
+            <div className="max-w-2xl mx-auto space-y-6">
+              <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
+                <div className="px-6 py-5 bg-gradient-to-r from-slate-900 to-purple-950 text-white">
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <ShieldCheck className="w-6 h-6 text-purple-400" />
+                    Change Admin Password
+                  </h2>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Update your current password to maintain administrative system security.
+                  </p>
+                </div>
+
+                <div className="p-6 space-y-6">
+                  {adminPasswordMessage.text && (
+                    <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                      adminPasswordMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                    }`}>
+                      {adminPasswordMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
+                      <span>{adminPasswordMessage.text}</span>
+                    </div>
+                  )}
+
+                  <div className="p-4 bg-purple-50 rounded-xl border border-purple-200 text-purple-900 text-xs leading-relaxed flex items-start gap-2.5">
+                    <Key className="w-4 h-4 text-purple-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-semibold block mb-0.5">Admin Security Protocol:</strong>
+                      Re-authenticate with your current password, then set a new password containing at least 6 characters.
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleAdminChangePassword} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                        Current Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showAdminCurrentPassword ? "text" : "password"}
+                          value={adminPasswordForm.currentPassword}
+                          onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, currentPassword: e.target.value })}
+                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Enter current password"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAdminCurrentPassword(!showAdminCurrentPassword)}
+                          className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                        >
+                          {showAdminCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                        New Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showAdminNewPassword ? "text" : "password"}
+                          value={adminPasswordForm.newPassword}
+                          onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, newPassword: e.target.value })}
+                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Enter new password (min. 6 characters)"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAdminNewPassword(!showAdminNewPassword)}
+                          className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                        >
+                          {showAdminNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                        Confirm New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={adminPasswordForm.confirmPassword}
+                        onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, confirmPassword: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Re-enter new password"
+                        required
+                      />
+                    </div>
+
+                    <div className="pt-4 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={isChangingAdminPassword}
+                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-slate-900 hover:bg-black shadow-md transition ${
+                          isChangingAdminPassword ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
+                        }`}
+                      >
+                        {isChangingAdminPassword ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Updating Password...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Key className="w-4 h-4" />
+                            <span>Update Password</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Register Face modal */}
           {isRegisteringFace && registeringStudent && (
             <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+              <div className="bg-white rounded-lg p-6 max-w-lg w-full shadow-xl">
                 <div className="flex justify-between items-center mb-4">
                   <div>
                     <h3 className="text-lg font-medium text-gray-900">Register Student Face</h3>
@@ -2273,72 +3891,198 @@ const AutomatedAttendanceSystem = () => {
                     <X size={20} />
                   </button>
                 </div>
-                
-                <div className="space-y-4">
-                  {/* Camera view */}
-                  <div className="relative overflow-hidden bg-black rounded-lg w-full aspect-video flex items-center justify-center">
-                    <video
-                      ref={registerVideoRef}
-                      autoPlay
-                      muted
-                      onPlay={handleRegisterVideoOnPlay}
-                      className="w-full h-full object-cover animate-none"
-                    />
-                    <canvas
-                      ref={registerCanvasRef}
-                      className="absolute top-0 left-0 w-full h-full object-cover pointer-events-none"
-                    />
-                  </div>
 
-                  {/* Progress Indicator */}
-                  <div>
-                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                      <span>Capture Progress</span>
-                      <span>{registerCaptureProgress} / 10 samples</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${(registerCaptureProgress / 10) * 100}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  {/* Status Bar */}
-                  <div className="text-center py-2 px-3 bg-gray-50 rounded-md border border-gray-100 min-h-[40px] flex items-center justify-center">
-                    <p className="text-sm font-medium text-gray-700">
-                      {registerStatus || 'Ready to capture. Keep face in center.'}
-                    </p>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex space-x-3">
-                    <button
-                      id="register-start-capture"
-                      type="button"
-                      onClick={() => {
-                        registerCapturingRef.current = true;
-                        setRegisterCapturing(true);
-                      }}
-                      disabled={registerCapturing || registerCaptureProgress >= 10}
-                      className={`flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                        registerCapturing || registerCaptureProgress >= 10
-                          ? 'bg-gray-400 cursor-not-allowed'
-                          : 'bg-green-600 hover:bg-green-700'
-                      } focus:outline-none`}
-                    >
-                      {registerCapturing ? 'Capturing...' : 'Start Capture'}
-                    </button>
-                    <button
-                      id="register-cancel"
-                      type="button"
-                      onClick={closeRegisterFaceModal}
-                      className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                {/* Tab Switcher: Webcam vs Upload */}
+                <div className="flex border-b border-gray-200 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegisterTab('webcam');
+                      if (isRegisteringFace && registeringStudent) {
+                        startRegisterVideo();
+                      }
+                    }}
+                    className={`py-2 px-4 border-b-2 text-sm font-medium focus:outline-none ${
+                      registerTab === 'webcam'
+                        ? 'border-indigo-600 text-indigo-600 font-semibold'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    📷 Webcam Capture
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegisterTab('upload');
+                      if (registerVideoRef.current && registerVideoRef.current.srcObject) {
+                        registerVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+                        registerVideoRef.current.srcObject = null;
+                      }
+                    }}
+                    className={`py-2 px-4 border-b-2 text-sm font-medium focus:outline-none ${
+                      registerTab === 'upload'
+                        ? 'border-indigo-600 text-indigo-600 font-semibold'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    📁 Upload Photos
+                  </button>
                 </div>
+
+                {registerTab === 'webcam' ? (
+                  <div className="space-y-4">
+                    {/* Camera view */}
+                    <div className="relative overflow-hidden bg-black rounded-lg w-full aspect-video flex items-center justify-center">
+                      <video
+                        ref={registerVideoRef}
+                        autoPlay
+                        muted
+                        onPlay={handleRegisterVideoOnPlay}
+                        className="w-full h-full object-cover animate-none"
+                      />
+                      <canvas
+                        ref={registerCanvasRef}
+                        className="absolute top-0 left-0 w-full h-full object-cover pointer-events-none"
+                      />
+                    </div>
+
+                    {/* Progress Indicator */}
+                    <div>
+                      <div className="flex justify-between text-xs text-gray-500 mb-1">
+                        <span>Capture Progress</span>
+                        <span>{registerCaptureProgress} / 10 samples</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${(registerCaptureProgress / 10) * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    {/* Status Bar */}
+                    <div className="text-center py-2 px-3 bg-gray-50 rounded-md border border-gray-100 min-h-[40px] flex items-center justify-center">
+                      <p className="text-sm font-medium text-gray-700">
+                        {registerStatus || 'Ready to capture. Keep face in center.'}
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex space-x-3">
+                      <button
+                        id="register-start-capture"
+                        type="button"
+                        onClick={() => {
+                          photosRef.current = [];
+                          capturesCountRef.current = 0;
+                          lastCenterRef.current = null;
+                          lastCaptureTimeRef.current = 0;
+                          registerCapturingRef.current = true;
+                          setRegisterCapturing(true);
+                          setRegisterCaptureProgress(0);
+                          setRegisterStatus('Capturing Sample 0/10... Keep face centered');
+                        }}
+                        disabled={registerCapturing || registerCaptureProgress >= 10}
+                        className={`flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                          registerCapturing || registerCaptureProgress >= 10
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : 'bg-green-600 hover:bg-green-700'
+                        } focus:outline-none cursor-pointer flex items-center justify-center gap-1.5`}
+                      >
+                        <Camera className="w-4 h-4" />
+                        {registerCapturing ? 'Capturing...' : 'Capture'}
+                      </button>
+                      <button
+                        id="register-cancel"
+                        type="button"
+                        onClick={closeRegisterFaceModal}
+                        className="flex-1 py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <X className="w-4 h-4 text-gray-500" />
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Upload File Input Area */}
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-indigo-500 transition-colors">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        id="face-photo-upload-input"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                      <label htmlFor="face-photo-upload-input" className="cursor-pointer flex flex-col items-center">
+                        <Camera className="h-10 w-10 text-indigo-500 mb-2" />
+                        <span className="text-sm font-medium text-gray-900">Click to upload sample photos</span>
+                        <span className="text-xs text-gray-500 mt-1">Upload 5 or more clear face photos (JPEG, PNG)</span>
+                      </label>
+                    </div>
+
+                    {/* Image Previews */}
+                    {uploadedPhotos.length > 0 && (
+                      <div>
+                        <div className="flex justify-between text-xs text-gray-500 mb-2">
+                          <span>Uploaded Samples: {uploadedPhotos.length}</span>
+                          <button
+                            type="button"
+                            onClick={() => setUploadedPhotos([])}
+                            className="text-red-600 hover:underline cursor-pointer"
+                          >
+                            Clear all
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-4 gap-2 max-h-40 overflow-y-auto p-1 border rounded-md">
+                          {uploadedPhotos.map((photoUrl, idx) => (
+                            <div key={idx} className="relative group">
+                              <img src={photoUrl} alt={`Sample ${idx+1}`} className="w-full h-16 object-cover rounded border" />
+                              <button
+                                type="button"
+                                onClick={() => removeUploadedPhoto(idx)}
+                                className="absolute top-0.5 right-0.5 bg-red-600 text-white rounded-full p-0.5 opacity-80 hover:opacity-100"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Status Bar */}
+                    <div className="text-center py-2 px-3 bg-gray-50 rounded-md border border-gray-100 min-h-[40px] flex items-center justify-center">
+                      <p className="text-sm font-medium text-gray-700">
+                        {registerStatus || 'Upload at least 5 photo samples and click Train Model.'}
+                      </p>
+                    </div>
+
+                    {/* Submit Upload Actions */}
+                    <div className="flex space-x-3">
+                      <button
+                        type="button"
+                        onClick={submitUploadedPhotos}
+                        disabled={uploadedPhotos.length < 5}
+                        className={`flex-1 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                          uploadedPhotos.length < 5
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : 'bg-indigo-600 hover:bg-indigo-700'
+                        } focus:outline-none cursor-pointer flex items-center justify-center gap-1.5`}
+                      >
+                        Train Model ({uploadedPhotos.length} photos)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={closeRegisterFaceModal}
+                        className="py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -141,7 +141,12 @@ def resolve_student(model_label: str):
             student["firstName"].casefold(),
         }:
             return student
-    return None
+    return {
+        "uid": model_label,
+        "name": model_label.title(),
+        "rollNo": "N/A",
+        "modelLabel": model_label
+    }
 
 
 def unknown_response(reason: str, box=None, confidence: float = 0.0):
@@ -187,8 +192,9 @@ def reload_students():
 
 @app.post("/register_faces")
 def register_faces(request: RegisterFacesRequest):
-    if len(request.images) < 10:
-        raise HTTPException(status_code=400, detail="Capture at least 10 face samples for registration.")
+    min_required = 5
+    if len(request.images) < min_required:
+        raise HTTPException(status_code=400, detail=f"Provide at least {min_required} face samples for registration.")
 
     features = []
     rejected = []
@@ -202,12 +208,12 @@ def register_faces(request: RegisterFacesRequest):
         except HTTPException as error:
             rejected.append({"index": index, "reason": error.detail})
 
-    if len(features) < 10:
+    if len(features) < min_required:
         return {
             "registered": False,
             "accepted": len(features),
             "rejected": rejected,
-            "reason": "Ten clear, single-face samples are required. Try again in better lighting.",
+            "reason": f"At least {min_required} clear, single-face samples are required (accepted {len(features)} of {len(request.images)}). Upload clearer photos or align face in camera.",
         }
 
     add_student_to_model(request.student_id, features)

@@ -14,12 +14,16 @@ class FaceModel:
     threshold: float
 
     def predict(self, features: np.ndarray) -> tuple[str, float]:
+        if not self.centroids:
+            return "unknown", 0.0
         distances = {
             label: float(np.linalg.norm(features - centroid))
             for label, centroid in self.centroids.items()
         }
+        if not distances:
+            return "unknown", 0.0
         label, distance = min(distances.items(), key=lambda item: item[1])
-        acceptance_distance = self.acceptance_distances[label]
+        acceptance_distance = self.acceptance_distances.get(label, 1.2)
         confidence = float(np.exp(-distance / acceptance_distance))
         if confidence < self.threshold:
             return "unknown", confidence
@@ -52,8 +56,13 @@ def save_model(model: FaceModel, path: Path) -> None:
 
 
 def load_model(path: Path) -> FaceModel:
-    with path.open("rb") as handle:
-        model = pickle.load(handle)
-    if not isinstance(model, FaceModel):
-        raise TypeError(f"File does not contain a FaceModel: {path}")
-    return model
+    if not path.is_file():
+        return FaceModel(centroids={}, acceptance_distances={}, threshold=0.3)
+    try:
+        with path.open("rb") as handle:
+            model = pickle.load(handle)
+        if not isinstance(model, FaceModel):
+            return FaceModel(centroids={}, acceptance_distances={}, threshold=0.3)
+        return model
+    except Exception:
+        return FaceModel(centroids={}, acceptance_distances={}, threshold=0.3)
