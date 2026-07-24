@@ -69,8 +69,7 @@ def get_single_face(image: np.ndarray):
     faces = detect_faces(image, detector)
     if not faces:
         return None, "No face detected."
-    if len(faces) != 1:
-        return None, "Show exactly one face to the camera."
+    # faces[0] is the primary, largest detected face after filtering noise
     return faces[0], None
 
 
@@ -167,9 +166,14 @@ def add_student_to_model(student_id: str, features: list[np.ndarray]) -> None:
     model = load_model(MODEL_PATH)
     feature_matrix = np.vstack(features)
     centroid = feature_matrix.mean(axis=0)
-    distances = np.linalg.norm(feature_matrix - centroid, axis=1)
+    eps = 1e-10
+    distances = [
+        float(0.5 * np.sum(((feat - centroid) ** 2) / (feat + centroid + eps)))
+        for feat in features
+    ]
     model.centroids[student_id] = centroid
-    model.acceptance_distances[student_id] = max(float(np.percentile(distances, 95)) * 2.0, 1.2)
+    p95 = float(np.percentile(distances, 95)) if len(distances) > 0 else 10.0
+    model.acceptance_distances[student_id] = max(p95 * 1.6, 14.0)
     save_model(model, MODEL_PATH)
 
 

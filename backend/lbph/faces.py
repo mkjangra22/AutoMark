@@ -49,12 +49,22 @@ def detect_faces(
     boxes = detector.detectMultiScale(
         gray,
         scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(40, 40),
+        minNeighbors=6,
+        minSize=(50, 50),
     )
 
+    if len(boxes) == 0:
+        return []
+
+    # Sort boxes by area descending so primary faces come first
+    box_list = sorted([tuple(b) for b in boxes], key=lambda b: b[2] * b[3], reverse=True)
+    largest_area = box_list[0][2] * box_list[0][3]
+
+    # Filter out tiny noise boxes (e.g. less than 20% of the largest box area)
+    filtered_boxes = [b for b in box_list if (b[2] * b[3]) >= 0.20 * largest_area]
+
     faces: list[DetectedFace] = []
-    for x, y, w, h in boxes:
+    for x, y, w, h in filtered_boxes:
         crop = gray[y : y + h, x : x + w]
         resized = cv2.resize(crop, face_size, interpolation=cv2.INTER_AREA)
         faces.append(DetectedFace(image=resized, box=(int(x), int(y), int(w), int(h))))
@@ -90,7 +100,12 @@ def lbph_features(face: np.ndarray) -> np.ndarray:
     for row in range(grid_y):
         for col in range(grid_x):
             cell = code[row * cell_h : (row + 1) * cell_h, col * cell_w : (col + 1) * cell_w]
-            hist, _ = np.histogram(cell, bins=256, range=(0, 256), density=True)
-            histograms.append(hist.astype(np.float32))
+            hist, _ = np.histogram(cell, bins=256, range=(0, 256))
+            hist_sum = hist.sum()
+            if hist_sum > 0:
+                hist = hist.astype(np.float32) / hist_sum
+            else:
+                hist = hist.astype(np.float32)
+            histograms.append(hist)
 
     return np.concatenate(histograms)
