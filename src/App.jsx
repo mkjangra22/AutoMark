@@ -124,7 +124,7 @@ function LandingPage() {
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-600"></span>
               </span>
               <span className="text-xs font-bold text-indigo-800 tracking-wide">
-                Digital Transformation Initiative for Rural & Smart Schools
+                Digital Transformation Initiative Smart Schools
               </span>
             </div>
 
@@ -132,7 +132,7 @@ function LandingPage() {
             <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight leading-tight text-slate-900">
               Automated Facial Attendance <br className="hidden sm:inline" />
               <span className="bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-800 bg-clip-text text-transparent">
-                Powered by AI & GPS Verification
+                Powered by AI & Verification
               </span>
             </h1>
 
