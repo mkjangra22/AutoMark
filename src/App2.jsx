@@ -933,42 +933,55 @@ const AutomatedAttendanceSystem = () => {
 
   const markAttendance = async (studentId, status, photoUrl = null, silent = false) => {
     if (!isWithinSchoolPremises()) {
-      alert('Attendance can only be marked within school premises');
+      if (!silent) {
+        alert('Attendance can only be marked within school premises. Click "Enable Mock Location" at the top right if you are testing outside school premises.');
+      } else {
+        setLastMarkedStatus('Outside school premises (Attendance not marked). Click "Enable Mock Location" to bypass for testing.');
+      }
       return false;
     }
 
     const today = getLocalDateKey();
     const time = new Date().toTimeString().split(' ')[0].substring(0, 5);
 
-    // Find student details
-    const student = students.find(s => s.id === studentId);
+    // Find student details flexibly matching id, docId, or uid
+    const student = students.find(s => s.id === studentId || s.docId === studentId || s.uid === studentId);
+    const resolvedId = student ? (student.id || student.docId || student.uid) : studentId;
+    const resolvedUid = student ? (student.uid || student.docId || student.id) : studentId;
+    const resolvedDocId = student ? student.docId : studentId;
     const studentName = student ? student.name : '';
     const studentRollNo = student ? (student.rollNo || '') : '';
 
     try {
-      const attendanceRef = doc(db, "attendance", `${studentId}_${today}`);
+      const attendanceRef = doc(db, "attendance", `${resolvedId}_${today}`);
       const attendanceRecord = {
-        studentId,
+        studentId: resolvedId,
         date: today,
         status,
         timestamp: status === 'present' ? time : null,
         photoUrl: photoUrl || null,
-        // Audit and architecture required fields
-        uid: studentId,
+        uid: resolvedUid,
+        docId: resolvedDocId,
         name: studentName,
         rollNo: studentRollNo
       };
 
       await setDoc(attendanceRef, attendanceRecord);
 
-      // Update local state
-      setAttendanceData(prev => ({
-        ...prev,
-        [studentId]: [
-          ...(prev[studentId] || []).filter(record => record.date !== today),
-          { date: today, status, timestamp: status === 'present' ? time : null, photoUrl }
-        ]
-      }));
+      // Update local state across all candidate keys
+      setAttendanceData(prev => {
+        const newRecord = { date: today, status, timestamp: status === 'present' ? time : null, photoUrl };
+        const updated = { ...prev };
+        const keysToUpdate = Array.from(new Set([studentId, resolvedId, resolvedUid, resolvedDocId].filter(Boolean)));
+        
+        keysToUpdate.forEach(k => {
+          updated[k] = [
+            ...(prev[k] || []).filter(record => record.date !== today),
+            newRecord
+          ];
+        });
+        return updated;
+      });
 
       // Simulate SMS notification to parents
       if (status === 'absent') {
@@ -997,14 +1010,21 @@ const AutomatedAttendanceSystem = () => {
         querySnapshot.forEach(docSnap => {
           const data = docSnap.data();
           const studentId = data.studentId;
-          if (!attendanceMap[studentId]) {
-            attendanceMap[studentId] = [];
-          }
-          attendanceMap[studentId].push({
+          const uid = data.uid;
+          const docId = data.docId;
+          const rec = {
             date: data.date,
             status: data.status,
             timestamp: data.timestamp,
             photoUrl: data.photoUrl || null
+          };
+          [studentId, uid, docId].filter(Boolean).forEach(k => {
+            if (!attendanceMap[k]) {
+              attendanceMap[k] = [];
+            }
+            if (!attendanceMap[k].some(r => r.date === data.date)) {
+              attendanceMap[k].push(rec);
+            }
           });
         });
         setAttendanceData(attendanceMap);
@@ -1126,12 +1146,23 @@ const AutomatedAttendanceSystem = () => {
               recognitionCandidateRef.current = { label: resData.label, consecutive };
               const stableMatch = consecutive >= REQUIRED_STABLE_RECOGNITIONS;
 
-              // Check if attendance already marked today
+              // Check if attendance already marked PRESENT today
               const today = getLocalDateKey();
-              const studentRecords = attendanceData[resData.label] || [];
-              const alreadyMarked = studentRecords.some(r => r.date === today);
+              const targetStudentId = studentDoc ? (studentDoc.id || studentDoc.docId || studentDoc.uid) : resData.label;
 
-              if (alreadyMarked) {
+              const candidateKeys = Array.from(new Set([
+                resData.label,
+                targetStudentId,
+                studentDoc?.docId,
+                studentDoc?.uid,
+                studentDoc?.id
+              ].filter(Boolean)));
+
+              const allStudentRecords = candidateKeys.flatMap(k => attendanceData[k] || []);
+              const todayRecord = allStudentRecords.find(r => r.date === today);
+              const alreadyPresent = todayRecord && todayRecord.status === 'present';
+
+              if (alreadyPresent) {
                 color = 'rgba(245, 158, 11, 1)'; // Orange for already present
                 labelText = `${resData.name} (already present)`;
               } else if (!stableMatch) {
@@ -1139,11 +1170,11 @@ const AutomatedAttendanceSystem = () => {
                 labelText = `${resData.name} - confirming ${consecutive}/${REQUIRED_STABLE_RECOGNITIONS}`;
               } else {
                 color = 'rgba(16, 185, 129, 1)'; // Green for recognized
-                labelText = `${resData.name} (Roll: ${resData.rollNo}, verified)`;
+                labelText = `${resData.name} (Roll: ${resData.rollNo || 'N/A'}, verified)`;
               
               // Proceed with marking attendance
-              if (!uploadingIdsRef.current.has(resData.label)) {
-                uploadingIdsRef.current.add(resData.label);
+              if (!uploadingIdsRef.current.has(targetStudentId)) {
+                uploadingIdsRef.current.add(targetStudentId);
 
                 const saveAttendancePhoto = async () => {
                   let photoUrlToSave = null;
@@ -1151,7 +1182,7 @@ const AutomatedAttendanceSystem = () => {
 
                   if (USE_FIREBASE_STORAGE) {
                     try {
-                      const storageRef = ref(storage, `attendance_photos/${resData.label}_${Date.now()}.png`);
+                      const storageRef = ref(storage, `attendance_photos/${targetStudentId}_${Date.now()}.png`);
                       const snapshot = await uploadString(storageRef, photoDataUrl, 'data_url');
                       const downloadUrl = await getDownloadURL(snapshot.ref);
                       photoUrlToSave = downloadUrl;
@@ -1171,15 +1202,15 @@ const AutomatedAttendanceSystem = () => {
                   }
 
                   try {
-                    const saved = await markAttendance(resData.label, 'present', photoUrlToSave, true);
+                    const saved = await markAttendance(targetStudentId, 'present', photoUrlToSave, true);
                     if (saved) {
                       const time = new Date().toTimeString().split(' ')[0].substring(0, 5);
-                      setLastMarkedStatus(`Marked present: ${resData.name} (Roll: ${resData.rollNo}) at ${time}`);
+                      setLastMarkedStatus(`Marked present: ${resData.name} (Roll: ${resData.rollNo || 'N/A'}) at ${time}`);
                     }
                   } catch (markErr) {
                     console.error('[Attendance Save] Failed to mark attendance in Firestore:', markErr);
                   } finally {
-                    uploadingIdsRef.current.delete(resData.label);
+                    uploadingIdsRef.current.delete(targetStudentId);
                   }
                 };
 
@@ -1828,28 +1859,45 @@ const AutomatedAttendanceSystem = () => {
                 <div className="flex items-center space-x-3 text-sm text-gray-500">
                   <div className="flex items-center">
                     <MapPin size={16} className="mr-1" />
-                    {geoLocation ? (
+                    {geoLocation || isMockingLocation ? (
                       isWithinSchoolPremises() ? (
-                        <span className="text-green-600">Within school premises</span>
+                        <span className="text-green-600 font-medium">Within school premises</span>
                       ) : (
-                        <span className="text-red-600">Outside school premises</span>
+                        <span className="text-red-600 font-medium">Outside school premises</span>
                       )
                     ) : (
-                      <span>Checking location...</span>
+                      <span className="text-amber-600 font-medium">Location unavailable</span>
                     )}
                   </div>
                   <button
                     onClick={toggleMockLocation}
-                    className={`px-2 py-1 rounded text-xs font-semibold border transition-all ${
+                    className={`px-3 py-1 rounded text-xs font-semibold border transition-all cursor-pointer ${
                       isMockingLocation
-                        ? 'bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100'
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm hover:bg-blue-700'
+                        : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
                     }`}
                   >
-                    {isMockingLocation ? 'Mocking Location Active' : 'Mock Location'}
+                    {isMockingLocation ? '✓ Mock Location Active (Bypassed)' : '⚡ Enable Mock Location'}
                   </button>
                 </div>
               </div>
+
+              {!isWithinSchoolPremises() && (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-sm text-amber-800">
+                  <div className="flex items-center">
+                    <AlertCircle size={18} className="mr-2 text-amber-600 shrink-0" />
+                    <span>
+                      <strong>Location Notice:</strong> You are detected outside school premises. Attendance marking is paused until location is verified or mock location is enabled.
+                    </span>
+                  </div>
+                  <button
+                    onClick={toggleMockLocation}
+                    className="ml-4 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold px-3 py-1.5 rounded transition cursor-pointer shrink-0"
+                  >
+                    Enable Mock Location
+                  </button>
+                </div>
+              )}
               
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {!cameraActive ? (
