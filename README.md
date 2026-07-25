@@ -87,6 +87,16 @@ AutoMark/
 
 ---
 
+> ℹ️ **Note**: This project is intended for educational and portfolio purposes.
+
+## 👩‍💻 Developed By
+
+**Mayank Kumar**
+
+---
+
+⭐ **If you found this project useful, consider giving it a Star on GitHub!**
+
 <p align="center">
   Developed for <strong>Smart Schools & Educational Digital Transformation</strong>.
 </p>
