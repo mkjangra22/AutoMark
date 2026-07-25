@@ -101,6 +101,7 @@ const AutomatedAttendanceSystem = () => {
   const [classesList, setClassesList] = useState([]);
   const [newClassForm, setNewClassForm] = useState({ name: '', department: '' });
   const [selectedTeacherClass, setSelectedTeacherClass] = useState('all');
+  const [userDirectoryRoleFilter, setUserDirectoryRoleFilter] = useState('all'); // 'all' | 'student' | 'teacher' | 'admin'
 
   // Student Profile & Password Management State
   const [studentTab, setStudentTab] = useState('attendance'); // 'attendance' | 'profile' | 'security'
@@ -108,6 +109,7 @@ const AutomatedAttendanceSystem = () => {
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [profileMessage, setProfileMessage] = useState({ type: '', text: '' });
   const [passwordMessage, setPasswordMessage] = useState({ type: '', text: '' });
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
@@ -1677,80 +1679,155 @@ const AutomatedAttendanceSystem = () => {
   };
 
   const renderLogin = () => (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow-md">
-        <div>
-          <div className="flex justify-center items-center">
-            <img
-              src="AutoMark-logo__.png"
-              alt="Logo"
-              className="object-contain"
-              style={{ width: "5cm", height: "5cm" }}
-            />
-          </div>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Sign in to access your dashboard
-          </p>
-        </div>
-        <div className="mt-8 space-y-6">
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">Login as</label>
-              <select
-                id="role"
-                value={loginData.role}
-                onChange={(e) => setLoginData({...loginData, role: e.target.value})}
-                className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-              >
-                <option value="teacher">Teacher</option>
-                <option value="student">Student</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-            <div className="mt-4">
-              <label htmlFor="username" className="sr-only">Username</label>
-              <input
-                id="username"
-                type="text"
-                required
-                value={loginData.username}
-                onChange={(e) => setLoginData({...loginData, username: e.target.value})}
-                className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Username"
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-slate-50 to-blue-50 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+      {/* Soft background ambient glows */}
+      <div className="absolute top-1/4 -left-20 w-96 h-96 bg-indigo-300/20 rounded-full blur-3xl pointer-events-none"></div>
+      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-blue-300/20 rounded-full blur-3xl pointer-events-none"></div>
+
+      <div className="max-w-md w-full relative z-10">
+        {/* Clean Light Card Container */}
+        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200/80 space-y-7">
+          
+          {/* Header & Branding */}
+          <div className="text-center">
+            <div className="inline-flex p-3 bg-indigo-50/80 rounded-2xl mb-3 shadow-inner">
+              <img
+                src="AutoMark-logo__.png"
+                alt="AutoMark Logo"
+                className="w-36 h-16 object-contain"
               />
             </div>
-            <div>
-              <label htmlFor="password" className="sr-only">Password</label>
-              <input
-                id="password"
-                type="password"
-                required
-                value={loginData.password}
-                onChange={(e) => setLoginData({...loginData, password: e.target.value})}
-                className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
-              />
-            </div>
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight">
+              Welcome to AutoMark
+            </h2>
+            <p className="mt-1 text-xs text-gray-500 font-medium">
+              {loginData.role === 'teacher' && 'Mark facial attendance & manage class records'}
+              {loginData.role === 'student' && 'View attendance statistics & submit leave requests'}
+              {loginData.role === 'admin' && 'Manage users, classes & system-wide metrics'}
+            </p>
           </div>
 
-          <div>
+          <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-5">
+            {/* Segmented Role Selector Bar */}
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2 text-center">
+                Select Login Portal
+              </label>
+              
+              <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => setLoginData({...loginData, role: 'teacher'})}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    loginData.role === 'teacher'
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Teacher</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setLoginData({...loginData, role: 'student'})}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    loginData.role === 'student'
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <User className="w-4 h-4" />
+                  <span>Student</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setLoginData({...loginData, role: 'admin'})}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    loginData.role === 'admin'
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Admin</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Inputs Group */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Username / Email
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="username"
+                    type="text"
+                    required
+                    value={loginData.username}
+                    onChange={(e) => setLoginData({...loginData, username: e.target.value})}
+                    className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
+                    placeholder={loginData.role === 'student' ? "Enter Roll No or Email" : "Enter Email or Username"}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="password"
+                    type={showLoginPassword ? "text" : "password"}
+                    required
+                    value={loginData.password}
+                    onChange={(e) => setLoginData({...loginData, password: e.target.value})}
+                    className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 transition"
+                  >
+                    {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Submit Button */}
             <button
-              onClick={handleLogin}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              type="submit"
+              className="w-full flex justify-center items-center gap-2 py-3 px-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-lg shadow-indigo-500/25 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all cursor-pointer active:scale-[0.99]"
             >
-              Sign in
+              <span>Sign In as {loginData.role.charAt(0).toUpperCase() + loginData.role.slice(1)}</span>
             </button>
-          </div>
+          </form>
 
-          <div className="pt-4 border-t border-gray-100 flex flex-col items-center">
+          {/* Seed Database Footer Option */}
+          <div className="pt-4 border-t border-gray-100 text-center">
             <button
+              type="button"
               onClick={handleSeedDatabase}
               disabled={seeding}
-              className="text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition cursor-pointer"
             >
-              {seeding ? "Seeding Database..." : "Seed / Reset Demo Database"}
+              <RefreshCw className={`w-3.5 h-3.5 ${seeding ? 'animate-spin' : ''}`} />
+              <span>{seeding ? "Seeding Database..." : "Seed / Reset Demo Database"}</span>
             </button>
           </div>
+
         </div>
       </div>
     </div>
@@ -1768,64 +1845,52 @@ const AutomatedAttendanceSystem = () => {
     });
 
     return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <header className="bg-white shadow border-b border-gray-200">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/80 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center space-x-3">
             <img className="h-10 w-10 rounded-full object-cover border border-indigo-100 shadow-sm" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile" />
             <div>
-              <h1 className="text-xl font-bold text-gray-900 leading-tight">Teacher Portal</h1>
-              <p className="text-xs text-gray-500">{user?.name} {assignedClasses.length > 0 ? `| Classes: ${assignedClasses.join(', ')}` : ''} {user?.department && `| ${user.department}`}</p>
+              <h1 className="text-xl font-bold text-slate-900 leading-tight">Teacher Portal</h1>
+              <p className="text-xs text-slate-500">{user?.name} {assignedClasses.length > 0 ? `| Classes: ${assignedClasses.join(', ')}` : ''} {user?.department && `| ${user.department}`}</p>
             </div>
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex items-center space-x-1 sm:space-x-2 bg-gray-100 p-1 rounded-xl">
+          <div className="flex items-center space-x-1 sm:space-x-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
             <button
               onClick={() => setTeacherTab('attendance')}
-              className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 teacherTab === 'attendance'
-                  ? 'bg-white text-indigo-600 shadow-sm font-semibold'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                  ? 'bg-white text-indigo-600 shadow-sm font-bold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
               }`}
             >
               <UserCheck className="w-4 h-4" />
-              <span>Mark Attendance</span>
+              <span>Dashboard</span>
             </button>
 
             <button
               onClick={() => setTeacherTab('profile')}
-              className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 teacherTab === 'profile'
-                  ? 'bg-white text-indigo-600 shadow-sm font-semibold'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                  ? 'bg-white text-indigo-600 shadow-sm font-bold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
               }`}
             >
               <User className="w-4 h-4" />
               <span>My Profile</span>
             </button>
-
-            <button
-              onClick={() => setTeacherTab('security')}
-              className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                teacherTab === 'security'
-                  ? 'bg-white text-indigo-600 shadow-sm font-semibold'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
-              }`}
-            >
-              <Key className="w-4 h-4" />
-              <span>Security</span>
-            </button>
           </div>
 
           <div className="flex items-center space-x-3">
             {assignedClasses.length > 1 && (
-              <div className="flex items-center space-x-2 bg-gray-100 px-3 py-1.5 rounded-lg border border-gray-200">
-                <span className="text-xs font-semibold text-gray-500 uppercase">Filter:</span>
+              <div className="flex items-center space-x-2 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                <span className="text-xs font-semibold text-slate-500 uppercase">Filter:</span>
                 <select
                   value={selectedTeacherClass}
                   onChange={(e) => setSelectedTeacherClass(e.target.value)}
-                  className="text-xs font-semibold text-gray-800 bg-transparent focus:outline-none cursor-pointer"
+                  className="text-xs font-semibold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
                 >
                   <option value="all">All ({assignedClasses.join(', ')})</option>
                   {assignedClasses.map(cls => (
@@ -1837,10 +1902,10 @@ const AutomatedAttendanceSystem = () => {
 
             <button 
               onClick={handleLogout} 
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 hover:text-red-600 transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 hover:text-red-600 transition cursor-pointer shadow-sm"
               title="Log Out"
             >
-              <LogOut size={16} />
+              <LogOut size={15} />
               <span>Logout</span>
             </button>
           </div>
@@ -1853,28 +1918,28 @@ const AutomatedAttendanceSystem = () => {
             <div className="mb-8">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-lg font-medium text-gray-900">Mark Attendance</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">Showing students assigned to your classes ({teacherStudents.length} student{teacherStudents.length !== 1 ? 's' : ''})</p>
+                  <h2 className="text-lg font-bold text-slate-900">Mark Attendance</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Showing students assigned to your classes ({teacherStudents.length} student{teacherStudents.length !== 1 ? 's' : ''})</p>
                 </div>
-                <div className="flex items-center space-x-3 text-sm text-gray-500">
+                <div className="flex items-center space-x-3 text-sm text-slate-500">
                   <div className="flex items-center">
                     <MapPin size={16} className="mr-1" />
                     {geoLocation || isMockingLocation ? (
                       isWithinSchoolPremises() ? (
-                        <span className="text-green-600 font-medium">Within school premises</span>
+                        <span className="text-emerald-600 font-semibold">Within school premises</span>
                       ) : (
-                        <span className="text-red-600 font-medium">Outside school premises</span>
+                        <span className="text-red-600 font-semibold">Outside school premises</span>
                       )
                     ) : (
-                      <span className="text-amber-600 font-medium">Location unavailable</span>
+                      <span className="text-amber-600 font-semibold">Location unavailable</span>
                     )}
                   </div>
                   <button
                     onClick={toggleMockLocation}
-                    className={`px-3 py-1 rounded text-xs font-semibold border transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                       isMockingLocation
-                        ? 'bg-blue-600 border-blue-600 text-white shadow-sm hover:bg-blue-700'
-                        : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                        : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
                     }`}
                   >
                     {isMockingLocation ? '✓ Mock Location Active (Bypassed)' : '⚡ Enable Mock Location'}
@@ -1883,7 +1948,7 @@ const AutomatedAttendanceSystem = () => {
               </div>
 
               {!isWithinSchoolPremises() && (
-                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-sm text-amber-800">
+                <div className="mt-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-sm text-amber-800">
                   <div className="flex items-center">
                     <AlertCircle size={18} className="mr-2 text-amber-600 shrink-0" />
                     <span>
@@ -1892,7 +1957,7 @@ const AutomatedAttendanceSystem = () => {
                   </div>
                   <button
                     onClick={toggleMockLocation}
-                    className="ml-4 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold px-3 py-1.5 rounded transition cursor-pointer shrink-0"
+                    className="ml-4 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-lg transition cursor-pointer shrink-0 shadow-sm"
                   >
                     Enable Mock Location
                   </button>
@@ -1901,21 +1966,21 @@ const AutomatedAttendanceSystem = () => {
               
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {!cameraActive ? (
-                  <div className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-8 text-center bg-gray-50 flex flex-col items-center justify-center min-h-[220px]">
-                    <Camera className="mx-auto h-10 w-10 text-indigo-500 mb-2" />
-                    <p className="text-sm font-medium text-gray-700 mb-3">Facial Recognition Attendance</p>
+                  <div className="relative block w-full rounded-2xl border-2 border-dashed border-indigo-200 p-8 text-center bg-white flex flex-col items-center justify-center min-h-[220px] shadow-sm">
+                    <Camera className="mx-auto h-10 w-10 text-indigo-600 mb-2" />
+                    <p className="text-sm font-bold text-slate-900 mb-3">Facial Recognition Attendance</p>
                     <button
                       id="start-facial-rec-btn"
                       onClick={startFacialRecognition}
-                      className="inline-flex items-center px-6 py-2.5 border border-transparent text-sm font-semibold rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all cursor-pointer"
+                      className="inline-flex items-center px-6 py-2.5 border border-transparent text-sm font-bold rounded-xl shadow-md shadow-indigo-600/20 text-white bg-indigo-600 hover:bg-indigo-700 transition-all cursor-pointer"
                     >
                       <Camera className="mr-2 h-4 w-4" />
-                      Start
+                      Start Camera Scan
                     </button>
                   </div>
                 ) : (
-                  <div className="relative block w-full rounded-lg border-2 border-dashed border-gray-300 p-6 text-center bg-white shadow-sm">
-                    <div className="relative overflow-hidden bg-black rounded-md w-full h-48 flex items-center justify-center">
+                  <div className="relative block w-full rounded-2xl border border-slate-200 p-6 text-center bg-white shadow-md">
+                    <div className="relative overflow-hidden bg-slate-900 rounded-xl w-full h-48 flex items-center justify-center border border-slate-800">
                       <video
                         ref={videoRef}
                         autoPlay
@@ -1924,9 +1989,9 @@ const AutomatedAttendanceSystem = () => {
                         className="w-full h-full object-cover"
                       />
                     </div>
-                    <p className="mt-3 text-xs text-gray-500 font-medium">Camera Active & Scanning assigned class students...</p>
+                    <p className="mt-3 text-xs text-slate-500 font-medium">Camera Active & Scanning assigned class students...</p>
                     {lastMarkedStatus && (
-                      <p className="mt-2 text-xs text-green-700 font-semibold bg-green-50 py-1.5 px-3 rounded-md border border-green-200 inline-block">
+                      <p className="mt-2 text-xs text-emerald-800 font-semibold bg-emerald-50 py-1.5 px-3 rounded-lg border border-emerald-200 inline-block">
                         {lastMarkedStatus}
                       </p>
                     )}
@@ -1935,7 +2000,7 @@ const AutomatedAttendanceSystem = () => {
                         id="camera-close-btn"
                         type="button"
                         onClick={stopFacialRecognition}
-                        className="inline-flex items-center px-5 py-2 border border-red-200 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all cursor-pointer"
+                        className="inline-flex items-center px-5 py-2 border border-red-200 text-xs font-bold rounded-xl text-red-700 bg-red-50 hover:bg-red-100 transition-all cursor-pointer"
                       >
                         <X className="mr-1.5 h-4 w-4 text-red-600" />
                         Close Camera
@@ -1947,37 +2012,37 @@ const AutomatedAttendanceSystem = () => {
                 {teacherStudents.map(student => {
                   const stats = getStudentAttendanceStats(student.id);
                   return (
-                    <div key={student.id} className="bg-white overflow-hidden shadow rounded-lg">
+                    <div key={student.id} className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition">
                       <div className="px-4 py-5 sm:p-6">
                         <div className="flex items-center">
-                          <img className="h-12 w-12 rounded-full object-cover border border-gray-200" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
+                          <img className="h-12 w-12 rounded-full object-cover border border-slate-200 shadow-sm" src={student.photo || DEFAULT_PROFILE_IMAGE} alt={`Profile of ${student.name}`} />
                           <div className="ml-4">
-                            <h3 className="text-lg leading-6 font-medium text-gray-900">{student.name}</h3>
+                            <h3 className="text-lg leading-6 font-bold text-slate-900">{student.name}</h3>
                             <p className="text-xs text-indigo-600 font-semibold">Class {student.class} | Roll: {student.rollNo || 'N/A'}</p>
                           </div>
                         </div>
-                        <div className="mt-4 flex justify-between">
+                        <div className="mt-4 flex justify-between gap-2">
                           <button
                             onClick={() => markAttendance(student.id, 'present')}
-                            className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                            className="flex-1 inline-flex justify-center items-center px-3 py-2 border border-emerald-200 text-xs font-bold rounded-xl text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition cursor-pointer"
                           >
                             Present
                           </button>
                           <button
                             onClick={() => markAttendance(student.id, 'absent')}
-                            className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                            className="flex-1 inline-flex justify-center items-center px-3 py-2 border border-red-200 text-xs font-bold rounded-xl text-red-700 bg-red-50 hover:bg-red-100 transition cursor-pointer"
                           >
                             Absent
                           </button>
                         </div>
                         <div className="mt-4">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs text-gray-500">Attendance</span>
-                            <span className="text-xs font-medium text-gray-900">{Math.round(stats.attendancePercentage)}%</span>
+                            <span className="text-xs text-slate-500">Attendance</span>
+                            <span className="text-xs font-bold text-slate-900">{Math.round(stats.attendancePercentage)}%</span>
                           </div>
-                          <div className="mt-1 w-full bg-gray-200 rounded-full h-2">
+                          <div className="mt-1 w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
                             <div
-                              className="bg-green-600 h-2 rounded-full"
+                              className="bg-emerald-600 h-2 rounded-full"
                               style={{ width: `${stats.attendancePercentage}%` }}
                             ></div>
                           </div>
@@ -2214,7 +2279,7 @@ const AutomatedAttendanceSystem = () => {
                     <button
                       type="submit"
                       disabled={isUpdatingTeacherProfile}
-                      className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
+                      className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
                         isUpdatingTeacherProfile ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
                       }`}
                     >
@@ -2234,25 +2299,22 @@ const AutomatedAttendanceSystem = () => {
                 </form>
               </div>
             </div>
-          </div>
-        )}
 
-        {teacherTab === 'security' && (
-          <div className="max-w-2xl mx-auto space-y-6">
-            <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
-              <div className="px-6 py-5 bg-gradient-to-r from-slate-800 to-indigo-900 text-white">
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <ShieldCheck className="w-6 h-6 text-indigo-400" />
-                  Change Temporary Password
+            {/* Security & Password Change Section */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
+              <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                  Account Security & Password
                 </h2>
-                <p className="text-xs text-slate-300 mt-1">
-                  Update your temporary password generated by Admin to a strong permanent password.
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Update your current or temporary password to a strong permanent password.
                 </p>
               </div>
 
               <div className="p-6 space-y-6">
                 {teacherPasswordMessage.text && (
-                  <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                  <div className={`p-4 rounded-xl flex items-center gap-3 text-sm font-medium ${
                     teacherPasswordMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
                   }`}>
                     {teacherPasswordMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
@@ -2260,17 +2322,17 @@ const AutomatedAttendanceSystem = () => {
                   </div>
                 )}
 
-                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs leading-relaxed flex items-start gap-2.5">
+                <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-xs leading-relaxed flex items-start gap-2.5">
                   <Key className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <strong className="font-semibold block mb-0.5">Important Security Notice:</strong>
-                    Enter your current temporary password provided by the Admin, then set a new password containing at least 6 characters.
+                    <strong className="font-semibold block mb-0.5">Security Guidelines:</strong>
+                    Enter your current temporary password provided by Admin, then set a new password containing at least 6 characters.
                   </div>
                 </div>
 
                 <form onSubmit={handleTeacherChangePassword} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                       Current / Temporary Password
                     </label>
                     <div className="relative">
@@ -2278,14 +2340,14 @@ const AutomatedAttendanceSystem = () => {
                         type={showTeacherCurrentPassword ? "text" : "password"}
                         value={teacherPasswordForm.currentPassword}
                         onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, currentPassword: e.target.value })}
-                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="Enter current or temporary password"
                         required
                       />
                       <button
                         type="button"
                         onClick={() => setShowTeacherCurrentPassword(!showTeacherCurrentPassword)}
-                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                        className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                       >
                         {showTeacherCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
@@ -2293,7 +2355,7 @@ const AutomatedAttendanceSystem = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                       New Password
                     </label>
                     <div className="relative">
@@ -2301,14 +2363,14 @@ const AutomatedAttendanceSystem = () => {
                         type={showTeacherNewPassword ? "text" : "password"}
                         value={teacherPasswordForm.newPassword}
                         onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, newPassword: e.target.value })}
-                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="Enter new password (min. 6 characters)"
                         required
                       />
                       <button
                         type="button"
                         onClick={() => setShowTeacherNewPassword(!showTeacherNewPassword)}
-                        className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                        className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                       >
                         {showTeacherNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
@@ -2316,14 +2378,14 @@ const AutomatedAttendanceSystem = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                       Confirm New Password
                     </label>
                     <input
                       type="password"
                       value={teacherPasswordForm.confirmPassword}
                       onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, confirmPassword: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                       placeholder="Re-enter new password"
                       required
                     />
@@ -2333,7 +2395,7 @@ const AutomatedAttendanceSystem = () => {
                     <button
                       type="submit"
                       disabled={isChangingTeacherPassword}
-                      className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-slate-800 hover:bg-slate-900 shadow-md transition ${
+                      className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-md transition ${
                         isChangingTeacherPassword ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
                       }`}
                     >
@@ -2363,63 +2425,51 @@ const AutomatedAttendanceSystem = () => {
   const renderStudentDashboard = () => {
     const stats = getStudentAttendanceStats(user?.id);
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <header className="bg-white shadow border-b border-gray-200">
+      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
+        <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/80 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
             <div className="flex items-center space-x-3">
               <img className="h-10 w-10 rounded-full object-cover border border-indigo-100 shadow-sm" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile" />
               <div>
-                <h1 className="text-xl font-bold text-gray-900 leading-tight">Student Portal</h1>
-                <p className="text-xs text-gray-500">{user?.name} | {user?.email}</p>
+                <h1 className="text-xl font-bold text-slate-900 leading-tight">Student Portal</h1>
+                <p className="text-xs text-slate-500">{user?.name} | {user?.email}</p>
               </div>
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex items-center space-x-1 sm:space-x-2 bg-gray-100 p-1 rounded-xl">
+            <div className="flex items-center space-x-1 sm:space-x-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
               <button
                 onClick={() => setStudentTab('attendance')}
-                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   studentTab === 'attendance'
-                    ? 'bg-white text-indigo-600 shadow-sm font-semibold'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                    ? 'bg-white text-indigo-600 shadow-sm font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                 }`}
               >
                 <BarChart3 className="w-4 h-4" />
-                <span>Attendance</span>
+                <span>Dashboard</span>
               </button>
 
               <button
                 onClick={() => setStudentTab('profile')}
-                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                   studentTab === 'profile'
-                    ? 'bg-white text-indigo-600 shadow-sm font-semibold'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                    ? 'bg-white text-indigo-600 shadow-sm font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                 }`}
               >
                 <User className="w-4 h-4" />
                 <span>My Profile</span>
-              </button>
-
-              <button
-                onClick={() => setStudentTab('security')}
-                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                  studentTab === 'security'
-                    ? 'bg-white text-indigo-600 shadow-sm font-semibold'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
-                }`}
-              >
-                <Key className="w-4 h-4" />
-                <span>Security</span>
               </button>
             </div>
 
             <div className="flex items-center">
               <button 
                 onClick={handleLogout} 
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 hover:text-red-600 transition-colors"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 hover:text-red-600 transition cursor-pointer shadow-sm"
                 title="Log Out"
               >
-                <LogOut size={16} />
+                <LogOut size={15} />
                 <span>Logout</span>
               </button>
             </div>
@@ -2430,21 +2480,21 @@ const AutomatedAttendanceSystem = () => {
           {studentTab === 'attendance' && (
             <div className="space-y-8">
               {/* Profile Card & Leave Application */}
-              <div className="bg-white overflow-hidden shadow rounded-xl border border-gray-100">
+              <div className="bg-white border border-slate-200/80 overflow-hidden shadow-sm rounded-2xl">
                 <div className="px-6 py-6">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-6 border-b border-gray-100 gap-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-6 border-b border-slate-100 gap-4">
                     <div className="flex items-center space-x-4">
-                      <img className="h-16 w-16 rounded-full object-cover border-2 border-indigo-500 shadow" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile" />
+                      <img className="h-16 w-16 rounded-full object-cover border-2 border-indigo-100 shadow-sm" src={user?.photo || DEFAULT_PROFILE_IMAGE} alt="Profile" />
                       <div>
-                        <h3 className="text-xl font-bold text-gray-900">{user?.name}</h3>
-                        <p className="text-sm text-gray-500 mt-0.5">
-                          Roll No: <span className="font-semibold text-gray-700">{user?.rollNo || user?.id}</span> | Class: <span className="font-semibold text-gray-700">{user?.class || 'N/A'}</span> {user?.department && `| Dept: ${user.department}`}
+                        <h3 className="text-xl font-bold text-slate-900">{user?.name}</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Roll No: <span className="font-semibold text-slate-700">{user?.rollNo || user?.id}</span> | Class: <span className="font-semibold text-slate-700">{user?.class || 'N/A'}</span> {user?.department && `| Dept: ${user.department}`}
                         </p>
                       </div>
                     </div>
                     <button
                       onClick={() => setStudentTab('profile')}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition cursor-pointer"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                       Edit Profile
@@ -2530,44 +2580,38 @@ const AutomatedAttendanceSystem = () => {
 
               {/* Stats Grid */}
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-                <div className="bg-white overflow-hidden shadow rounded-xl border border-gray-100">
-                  <div className="px-5 py-5 flex items-center">
-                    <div className="flex-shrink-0 bg-indigo-500 rounded-xl p-3">
-                      <Calendar className="h-6 w-6 text-white" />
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm hover:shadow-md transition">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex-shrink-0 bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-indigo-600">
+                      <Calendar className="h-6 w-6" />
                     </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Days</dt>
-                        <dd className="text-2xl font-bold text-gray-900 mt-1">{stats.totalDays}</dd>
-                      </dl>
+                    <div>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Total Days</span>
+                      <span className="text-2xl font-extrabold text-slate-900 mt-0.5 block">{stats.totalDays}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white overflow-hidden shadow rounded-xl border border-gray-100">
-                  <div className="px-5 py-5 flex items-center">
-                    <div className="flex-shrink-0 bg-emerald-500 rounded-xl p-3">
-                      <User className="h-6 w-6 text-white" />
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm hover:shadow-md transition">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex-shrink-0 bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-emerald-600">
+                      <User className="h-6 w-6" />
                     </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Present Days</dt>
-                        <dd className="text-2xl font-bold text-gray-900 mt-1">{stats.presentDays}</dd>
-                      </dl>
+                    <div>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Present Days</span>
+                      <span className="text-2xl font-extrabold text-emerald-600 mt-0.5 block">{stats.presentDays}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white overflow-hidden shadow rounded-xl border border-gray-100">
-                  <div className="px-5 py-5 flex items-center">
-                    <div className="flex-shrink-0 bg-blue-600 rounded-xl p-3">
-                      <BarChart3 className="h-6 w-6 text-white" />
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm hover:shadow-md transition">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex-shrink-0 bg-blue-50 border border-blue-100 rounded-xl p-3 text-blue-600">
+                      <BarChart3 className="h-6 w-6" />
                     </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-xs font-medium text-gray-500 uppercase tracking-wider">Attendance %</dt>
-                        <dd className="text-2xl font-bold text-gray-900 mt-1">{Math.round(stats.attendancePercentage)}%</dd>
-                      </dl>
+                    <div>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Attendance %</span>
+                      <span className="text-2xl font-extrabold text-blue-600 mt-0.5 block">{Math.round(stats.attendancePercentage)}%</span>
                     </div>
                   </div>
                 </div>
@@ -2730,7 +2774,7 @@ const AutomatedAttendanceSystem = () => {
                       <button
                         type="submit"
                         disabled={isUpdatingProfile}
-                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
+                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
                           isUpdatingProfile ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
                         }`}
                       >
@@ -2750,25 +2794,22 @@ const AutomatedAttendanceSystem = () => {
                   </form>
                 </div>
               </div>
-            </div>
-          )}
 
-          {studentTab === 'security' && (
-            <div className="max-w-2xl mx-auto space-y-6">
-              <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
-                <div className="px-6 py-5 bg-gradient-to-r from-slate-800 to-indigo-900 text-white">
-                  <h2 className="text-xl font-bold flex items-center gap-2">
-                    <ShieldCheck className="w-6 h-6 text-indigo-400" />
-                    Change Temporary Password
+              {/* Security & Password Change Section */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                    Account Security & Password
                   </h2>
-                  <p className="text-xs text-slate-300 mt-1">
-                    Update your temporary password generated by Admin to a strong permanent password.
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Update your current or temporary password to a strong permanent password.
                   </p>
                 </div>
 
                 <div className="p-6 space-y-6">
                   {passwordMessage.text && (
-                    <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                    <div className={`p-4 rounded-xl flex items-center gap-3 text-sm font-medium ${
                       passwordMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
                     }`}>
                       {passwordMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
@@ -2776,17 +2817,17 @@ const AutomatedAttendanceSystem = () => {
                     </div>
                   )}
 
-                  <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs leading-relaxed flex items-start gap-2.5">
+                  <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-xs leading-relaxed flex items-start gap-2.5">
                     <Key className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                     <div>
-                      <strong className="font-semibold block mb-0.5">Important Security Notice:</strong>
-                      Enter your current temporary password provided by the Admin, then set a new password containing at least 6 characters.
+                      <strong className="font-semibold block mb-0.5">Security Guidelines:</strong>
+                      Enter your current temporary password provided by Admin, then set a new password containing at least 6 characters.
                     </div>
                   </div>
 
                   <form onSubmit={handleChangePassword} className="space-y-4">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                         Current / Temporary Password
                       </label>
                       <div className="relative">
@@ -2794,14 +2835,14 @@ const AutomatedAttendanceSystem = () => {
                           type={showCurrentPassword ? "text" : "password"}
                           value={passwordForm.currentPassword}
                           onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           placeholder="Enter current or temporary password"
                           required
                         />
                         <button
                           type="button"
                           onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                          className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                         >
                           {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
@@ -2809,7 +2850,7 @@ const AutomatedAttendanceSystem = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                         New Password
                       </label>
                       <div className="relative">
@@ -2817,14 +2858,14 @@ const AutomatedAttendanceSystem = () => {
                           type={showNewPassword ? "text" : "password"}
                           value={passwordForm.newPassword}
                           onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           placeholder="Enter new password (min. 6 characters)"
                           required
                         />
                         <button
                           type="button"
                           onClick={() => setShowNewPassword(!showNewPassword)}
-                          className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                         >
                           {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
@@ -2832,14 +2873,14 @@ const AutomatedAttendanceSystem = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                         Confirm New Password
                       </label>
                       <input
                         type="password"
                         value={passwordForm.confirmPassword}
                         onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="Re-enter new password"
                         required
                       />
@@ -2849,7 +2890,7 @@ const AutomatedAttendanceSystem = () => {
                       <button
                         type="submit"
                         disabled={isChangingPassword}
-                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-slate-800 hover:bg-slate-900 shadow-md transition ${
+                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-md transition ${
                           isChangingPassword ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
                         }`}
                       >
@@ -3101,14 +3142,19 @@ const AutomatedAttendanceSystem = () => {
     const classStats = getClassStats();
 
     return (
-      <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow">
+      <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
+        <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/80 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <h1 className="text-xl font-semibold text-gray-900">Admin Dashboard</h1>
+            <h1 className="text-xl font-bold text-slate-900">Admin Dashboard</h1>
             <div className="flex items-center space-x-4">
-              <span className="text-gray-700">{user?.name}</span>
-              <button onClick={handleLogout} className="text-gray-500 hover:text-gray-700">
-                <LogOut size={20} />
+              <span className="text-sm font-semibold text-slate-700">{user?.name}</span>
+              <button 
+                onClick={handleLogout} 
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 hover:text-red-600 transition cursor-pointer shadow-sm"
+                title="Log Out"
+              >
+                <LogOut size={15} />
+                <span>Logout</span>
               </button>
             </div>
           </div>
@@ -3154,92 +3200,56 @@ const AutomatedAttendanceSystem = () => {
                 <User className="w-4 h-4" />
                 <span>My Profile</span>
               </button>
-              <button
-                id="admin-tab-security"
-                onClick={() => setAdminView('security')}
-                className={`pb-4 px-1 border-b-2 font-medium text-sm transition flex items-center gap-1.5 ${
-                  adminView === 'security'
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <Key className="w-4 h-4" />
-                <span>Security</span>
-              </button>
             </nav>
           </div>
 
           {adminView === 'overview' && (
             <>
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="px-4 py-5 sm:p-6">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 bg-indigo-500 rounded-md p-3">
-                        <User className="h-6 w-6 text-white" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Total Students</dt>
-                          <dd className="flex items-baseline">
-                            <div className="text-2xl font-semibold text-gray-900">{adminStats.totalStudents}</div>
-                          </dd>
-                        </dl>
-                      </div>
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm hover:shadow-md transition">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex-shrink-0 bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-indigo-600">
+                      <User className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Total Students</span>
+                      <span className="text-2xl font-extrabold text-slate-900 mt-0.5 block">{adminStats.totalStudents}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="px-4 py-5 sm:p-6">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 bg-green-500 rounded-md p-3">
-                        <User className="h-6 w-6 text-white" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Present Today</dt>
-                          <dd className="flex items-baseline">
-                            <div className="text-2xl font-semibold text-gray-900">{adminStats.presentToday}</div>
-                          </dd>
-                        </dl>
-                      </div>
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm hover:shadow-md transition">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex-shrink-0 bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-emerald-600">
+                      <UserCheck className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Present Today</span>
+                      <span className="text-2xl font-extrabold text-emerald-600 mt-0.5 block">{adminStats.presentToday}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="px-4 py-5 sm:p-6">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 bg-red-500 rounded-md p-3">
-                        <User className="h-6 w-6 text-white" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Absent Today</dt>
-                          <dd className="flex items-baseline">
-                            <div className="text-2xl font-semibold text-gray-900">{adminStats.absentToday}</div>
-                          </dd>
-                        </dl>
-                      </div>
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm hover:shadow-md transition">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex-shrink-0 bg-red-50 border border-red-100 rounded-xl p-3 text-red-600">
+                      <User className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Absent Today</span>
+                      <span className="text-2xl font-extrabold text-red-600 mt-0.5 block">{adminStats.absentToday}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="px-4 py-5 sm:p-6">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0 bg-blue-500 rounded-md p-3">
-                        <BarChart3 className="h-6 w-6 text-white" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Overall Attendance</dt>
-                          <dd className="flex items-baseline">
-                            <div className="text-2xl font-semibold text-gray-900">{Math.round(adminStats.overallPercentage)}%</div>
-                          </dd>
-                        </dl>
-                      </div>
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm hover:shadow-md transition">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex-shrink-0 bg-blue-50 border border-blue-100 rounded-xl p-3 text-blue-600">
+                      <BarChart3 className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Overall Attendance</span>
+                      <span className="text-2xl font-extrabold text-blue-600 mt-0.5 block">{Math.round(adminStats.overallPercentage)}%</span>
                     </div>
                   </div>
                 </div>
@@ -3480,7 +3490,33 @@ const AutomatedAttendanceSystem = () => {
 
                 {/* Directory Table */}
                 <div className="bg-white shadow rounded-lg p-6 lg:col-span-2 overflow-x-auto h-fit">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">User Directory</h3>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">User Directory</h3>
+                      <p className="text-xs text-gray-500">
+                        {userDirectoryRoleFilter === 'all'
+                          ? `Showing all ${usersList.length} user accounts`
+                          : `Filtered by ${userDirectoryRoleFilter}s (${usersList.filter(u => u.role === userDirectoryRoleFilter).length} accounts)`}
+                      </p>
+                    </div>
+
+                    {/* Role Filter Dropdown Bar */}
+                    <div className="flex items-center space-x-2 bg-gray-50 p-1.5 rounded-xl border border-gray-200 w-full sm:w-auto">
+                      <label htmlFor="user-directory-role-filter" className="text-xs font-semibold text-gray-500 uppercase tracking-wider pl-1 shrink-0">Filter Role:</label>
+                      <select
+                        id="user-directory-role-filter"
+                        value={userDirectoryRoleFilter}
+                        onChange={(e) => setUserDirectoryRoleFilter(e.target.value)}
+                        className="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                      >
+                        <option value="all">👥 All Users ({usersList.length})</option>
+                        <option value="student">🎓 Students Only ({usersList.filter(u => u.role === 'student').length})</option>
+                        <option value="teacher">👨‍🏫 Teachers Only ({usersList.filter(u => u.role === 'teacher').length})</option>
+                        <option value="admin">🛡️ Admins Only ({usersList.filter(u => u.role === 'admin').length})</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
@@ -3492,7 +3528,9 @@ const AutomatedAttendanceSystem = () => {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {usersList.map((usr) => (
+                      {usersList
+                        .filter(usr => userDirectoryRoleFilter === 'all' || usr.role === userDirectoryRoleFilter)
+                        .map((usr) => (
                         <tr key={usr.uid} className={usr.disabled ? 'bg-gray-50 text-gray-400' : ''}>
                           <td className="px-4 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900">{usr.name}</div>
@@ -3784,7 +3822,7 @@ const AutomatedAttendanceSystem = () => {
                       <button
                         type="submit"
                         disabled={isUpdatingAdminProfile}
-                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
+                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition ${
                           isUpdatingAdminProfile ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
                         }`}
                       >
@@ -3804,25 +3842,22 @@ const AutomatedAttendanceSystem = () => {
                   </form>
                 </div>
               </div>
-            </div>
-          )}
 
-          {adminView === 'security' && (
-            <div className="max-w-2xl mx-auto space-y-6">
-              <div className="bg-white shadow rounded-xl border border-gray-100 overflow-hidden">
-                <div className="px-6 py-5 bg-gradient-to-r from-slate-900 to-purple-950 text-white">
-                  <h2 className="text-xl font-bold flex items-center gap-2">
-                    <ShieldCheck className="w-6 h-6 text-purple-400" />
-                    Change Admin Password
+              {/* Security & Password Change Section */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-200">
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                    Account Security & Password
                   </h2>
-                  <p className="text-xs text-slate-300 mt-1">
-                    Update your current password to maintain administrative system security.
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Update your admin password to maintain system security.
                   </p>
                 </div>
 
                 <div className="p-6 space-y-6">
                   {adminPasswordMessage.text && (
-                    <div className={`p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${
+                    <div className={`p-4 rounded-xl flex items-center gap-3 text-sm font-medium ${
                       adminPasswordMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
                     }`}>
                       {adminPasswordMessage.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
@@ -3840,7 +3875,7 @@ const AutomatedAttendanceSystem = () => {
 
                   <form onSubmit={handleAdminChangePassword} className="space-y-4">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                         Current Password
                       </label>
                       <div className="relative">
@@ -3848,14 +3883,14 @@ const AutomatedAttendanceSystem = () => {
                           type={showAdminCurrentPassword ? "text" : "password"}
                           value={adminPasswordForm.currentPassword}
                           onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, currentPassword: e.target.value })}
-                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           placeholder="Enter current password"
                           required
                         />
                         <button
                           type="button"
                           onClick={() => setShowAdminCurrentPassword(!showAdminCurrentPassword)}
-                          className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                         >
                           {showAdminCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
@@ -3863,7 +3898,7 @@ const AutomatedAttendanceSystem = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                         New Password
                       </label>
                       <div className="relative">
@@ -3871,14 +3906,14 @@ const AutomatedAttendanceSystem = () => {
                           type={showAdminNewPassword ? "text" : "password"}
                           value={adminPasswordForm.newPassword}
                           onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, newPassword: e.target.value })}
-                          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                           placeholder="Enter new password (min. 6 characters)"
                           required
                         />
                         <button
                           type="button"
                           onClick={() => setShowAdminNewPassword(!showAdminNewPassword)}
-                          className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                          className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                         >
                           {showAdminNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
@@ -3886,14 +3921,14 @@ const AutomatedAttendanceSystem = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
                         Confirm New Password
                       </label>
                       <input
                         type="password"
                         value={adminPasswordForm.confirmPassword}
                         onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, confirmPassword: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="Re-enter new password"
                         required
                       />
@@ -3903,7 +3938,7 @@ const AutomatedAttendanceSystem = () => {
                       <button
                         type="submit"
                         disabled={isChangingAdminPassword}
-                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-slate-900 hover:bg-black shadow-md transition ${
+                        className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-md transition ${
                           isChangingAdminPassword ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'
                         }`}
                       >
