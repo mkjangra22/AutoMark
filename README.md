@@ -87,6 +87,20 @@ AutoMark/
 
 ---
 
+## 🚀 Future Enhancements
+
+- 📱 Android & iOS Mobile App
+- 🔔 Push Notifications
+- 📊 AI Attendance Analytics
+- 👨‍👩‍👧 Parent Portal
+- 📅 Timetable & Class Scheduling
+- 📈 Student Performance Dashboard
+- 📄 PDF & Excel Report Export
+- 🔗 LMS & Google Classroom Integration
+- 🤖 AI Attendance Insights
+
+---
+
 > ℹ️ **Note**: This project is intended for educational and portfolio purposes.
 
 ## 👩‍💻 Developed By
@@ -96,6 +110,8 @@ AutoMark/
 ---
 
 ⭐ **If you found this project useful, consider giving it a Star on GitHub!**
+
+---
 
 <p align="center">
   Developed for <strong>Smart Schools & Educational Digital Transformation</strong>.
