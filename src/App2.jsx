@@ -141,7 +141,7 @@ const AutomatedAttendanceSystem = () => {
     if (e) e.preventDefault();
     if (!user) return;
     if (!profileForm.name.trim()) {
-      setProfileMessage({ type: 'error', text: 'Full Name cannot be empty.' });
+      setProfileMessage({ type: 'error', text: 'Name cannot be empty.' });
       return;
     }
 
@@ -271,7 +271,7 @@ const AutomatedAttendanceSystem = () => {
     if (e) e.preventDefault();
     if (!user) return;
     if (!teacherProfileForm.name.trim()) {
-      setTeacherProfileMessage({ type: 'error', text: 'Full Name cannot be empty.' });
+      setTeacherProfileMessage({ type: 'error', text: 'Name cannot be empty.' });
       return;
     }
 
@@ -395,7 +395,7 @@ const AutomatedAttendanceSystem = () => {
     if (e) e.preventDefault();
     if (!user) return;
     if (!adminProfileForm.name.trim()) {
-      setAdminProfileMessage({ type: 'error', text: 'Full Name cannot be empty.' });
+      setAdminProfileMessage({ type: 'error', text: 'Name cannot be empty.' });
       return;
     }
 
@@ -1973,7 +1973,6 @@ const AutomatedAttendanceSystem = () => {
                       value={loginData.username}
                       onChange={(e) => setLoginData({...loginData, username: e.target.value})}
                       className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
-                      placeholder={loginData.role === 'student' ? "Enter Roll No or Email" : "Enter Email or Username"}
                     />
                   </div>
                 </div>
@@ -1993,7 +1992,6 @@ const AutomatedAttendanceSystem = () => {
                       value={loginData.password}
                       onChange={(e) => setLoginData({...loginData, password: e.target.value})}
                       className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
-                      placeholder="••••••••"
                     />
                     <button
                       type="button"
@@ -2084,17 +2082,16 @@ const AutomatedAttendanceSystem = () => {
                 </div>
               </div>
 
-              {/* Full Name & Email */}
+              {/* Name & Email */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Full Name *</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Name *</label>
                   <input
                     type="text"
                     required
                     value={signupData.name}
                     onChange={(e) => setSignupData({...signupData, name: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                    placeholder="e.g. Mayank Kumar"
                   />
                 </div>
                 <div>
@@ -2105,7 +2102,6 @@ const AutomatedAttendanceSystem = () => {
                     value={signupData.email}
                     onChange={(e) => setSignupData({...signupData, email: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                    placeholder="student@school.edu"
                   />
                 </div>
               </div>
@@ -2119,7 +2115,6 @@ const AutomatedAttendanceSystem = () => {
                   value={signupData.password}
                   onChange={(e) => setSignupData({...signupData, password: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                  placeholder="Choose a strong password"
                 />
               </div>
 
@@ -2156,7 +2151,6 @@ const AutomatedAttendanceSystem = () => {
                       value={signupData.rollNo}
                       onChange={(e) => setSignupData({...signupData, rollNo: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                      placeholder="e.g. 2823392"
                     />
                   </div>
                 </div>
@@ -2610,13 +2604,12 @@ const AutomatedAttendanceSystem = () => {
                 <form onSubmit={handleUpdateTeacherProfile} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Full Name</label>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Name</label>
                       <input
                         type="text"
                         value={teacherProfileForm.name}
                         onChange={(e) => setTeacherProfileForm({ ...teacherProfileForm, name: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Your full name"
                         required
                       />
                     </div>
@@ -2639,7 +2632,6 @@ const AutomatedAttendanceSystem = () => {
                         value={teacherProfileForm.class}
                         onChange={(e) => setTeacherProfileForm({ ...teacherProfileForm, class: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="e.g. 5"
                       />
                     </div>
 
@@ -2650,7 +2642,6 @@ const AutomatedAttendanceSystem = () => {
                         value={teacherProfileForm.department}
                         onChange={(e) => setTeacherProfileForm({ ...teacherProfileForm, department: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="e.g. Science / Mathematics"
                       />
                     </div>
                   </div>
@@ -2721,7 +2712,6 @@ const AutomatedAttendanceSystem = () => {
                         value={teacherPasswordForm.currentPassword}
                         onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, currentPassword: e.target.value })}
                         className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter current or temporary password"
                         required
                       />
                       <button
@@ -2744,7 +2734,6 @@ const AutomatedAttendanceSystem = () => {
                         value={teacherPasswordForm.newPassword}
                         onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, newPassword: e.target.value })}
                         className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter new password (min. 6 characters)"
                         required
                       />
                       <button
@@ -2766,7 +2755,6 @@ const AutomatedAttendanceSystem = () => {
                       value={teacherPasswordForm.confirmPassword}
                       onChange={(e) => setTeacherPasswordForm({ ...teacherPasswordForm, confirmPassword: e.target.value })}
                       className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Re-enter new password"
                       required
                     />
                   </div>
@@ -2902,7 +2890,6 @@ const AutomatedAttendanceSystem = () => {
                         <label className="block text-xs font-medium text-gray-700 mb-1">Reason for Leave</label>
                         <input
                           type="text"
-                          placeholder="Provide detailed reason for absence"
                           value={leaveReason}
                           onChange={(e) => setLeaveReason(e.target.value)}
                           className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full focus:ring-indigo-500 focus:border-indigo-500"
@@ -3094,13 +3081,12 @@ const AutomatedAttendanceSystem = () => {
                   <form onSubmit={handleUpdateProfile} className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Full Name</label>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Name</label>
                         <input
                           type="text"
                           value={profileForm.name}
                           onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="Your full name"
                           required
                         />
                       </div>
@@ -3123,7 +3109,6 @@ const AutomatedAttendanceSystem = () => {
                           value={profileForm.class}
                           onChange={(e) => setProfileForm({ ...profileForm, class: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="e.g. Class 10A"
                         />
                       </div>
 
@@ -3134,7 +3119,6 @@ const AutomatedAttendanceSystem = () => {
                           value={profileForm.rollNo}
                           onChange={(e) => setProfileForm({ ...profileForm, rollNo: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="e.g. 101"
                         />
                       </div>
 
@@ -3145,7 +3129,6 @@ const AutomatedAttendanceSystem = () => {
                           value={profileForm.department}
                           onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="e.g. Science / Computer Science"
                         />
                       </div>
                     </div>
@@ -3216,7 +3199,6 @@ const AutomatedAttendanceSystem = () => {
                           value={passwordForm.currentPassword}
                           onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
                           className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="Enter current or temporary password"
                           required
                         />
                         <button
@@ -3239,7 +3221,6 @@ const AutomatedAttendanceSystem = () => {
                           value={passwordForm.newPassword}
                           onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
                           className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="Enter new password (min. 6 characters)"
                           required
                         />
                         <button
@@ -3261,7 +3242,6 @@ const AutomatedAttendanceSystem = () => {
                         value={passwordForm.confirmPassword}
                         onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
                         className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Re-enter new password"
                         required
                       />
                     </div>
@@ -3725,7 +3705,6 @@ const AutomatedAttendanceSystem = () => {
                   <form onSubmit={handleCreateClass} className="flex items-center gap-2 w-full sm:w-auto">
                     <input
                       type="text"
-                      placeholder="Class Name (e.g. 5A, CSE 3B)"
                       value={newClassForm.name}
                       onChange={(e) => setNewClassForm({ ...newClassForm, name: e.target.value })}
                       className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500"
@@ -3733,7 +3712,6 @@ const AutomatedAttendanceSystem = () => {
                     />
                     <input
                       type="text"
-                      placeholder="Dept (e.g. CS)"
                       value={newClassForm.department}
                       onChange={(e) => setNewClassForm({ ...newClassForm, department: e.target.value })}
                       className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 w-28"
@@ -3774,14 +3752,13 @@ const AutomatedAttendanceSystem = () => {
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Create User Account</h3>
                   <form onSubmit={handleCreateUser} className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                       <input
                         type="text"
                         required
                         value={createUserForm.name}
                         onChange={(e) => setCreateUserForm({ ...createUserForm, name: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        placeholder="John Doe"
                       />
                     </div>
                     <div>
@@ -3792,7 +3769,6 @@ const AutomatedAttendanceSystem = () => {
                         value={createUserForm.email}
                         onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        placeholder="john.doe@automark.com"
                       />
                     </div>
                     <div>
@@ -3814,7 +3790,6 @@ const AutomatedAttendanceSystem = () => {
                         value={createUserForm.department}
                         onChange={(e) => setCreateUserForm({ ...createUserForm, department: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        placeholder="E.g. AIML, CSE, ECE"
                       />
                     </div>
                     {createUserForm.role === 'student' && (
@@ -3840,7 +3815,6 @@ const AutomatedAttendanceSystem = () => {
                             value={createUserForm.rollNo}
                             onChange={(e) => setCreateUserForm({ ...createUserForm, rollNo: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="E.g. 2823392"
                           />
                         </div>
                       </>
@@ -4181,13 +4155,12 @@ const AutomatedAttendanceSystem = () => {
                   <form onSubmit={handleUpdateAdminProfile} className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Full Name</label>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Name</label>
                         <input
                           type="text"
                           value={adminProfileForm.name}
                           onChange={(e) => setAdminProfileForm({ ...adminProfileForm, name: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="Your full name"
                           required
                         />
                       </div>
@@ -4210,7 +4183,6 @@ const AutomatedAttendanceSystem = () => {
                           value={adminProfileForm.department}
                           onChange={(e) => setAdminProfileForm({ ...adminProfileForm, department: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="e.g. System Administration / IT Head"
                         />
                       </div>
                     </div>
@@ -4281,7 +4253,6 @@ const AutomatedAttendanceSystem = () => {
                           value={adminPasswordForm.currentPassword}
                           onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, currentPassword: e.target.value })}
                           className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="Enter current password"
                           required
                         />
                         <button
@@ -4304,7 +4275,6 @@ const AutomatedAttendanceSystem = () => {
                           value={adminPasswordForm.newPassword}
                           onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, newPassword: e.target.value })}
                           className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                          placeholder="Enter new password (min. 6 characters)"
                           required
                         />
                         <button
@@ -4326,7 +4296,6 @@ const AutomatedAttendanceSystem = () => {
                         value={adminPasswordForm.confirmPassword}
                         onChange={(e) => setAdminPasswordForm({ ...adminPasswordForm, confirmPassword: e.target.value })}
                         className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Re-enter new password"
                         required
                       />
                     </div>
@@ -4677,19 +4646,17 @@ const AutomatedAttendanceSystem = () => {
                         value={newInstituteForm.code}
                         onChange={(e) => setNewInstituteForm({ ...newInstituteForm, code: e.target.value.toUpperCase() })}
                         className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm font-mono uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
-                        placeholder="e.g. PIET01"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Full Institute Name *</label>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Institute Name *</label>
                       <input
                         type="text"
                         required
                         value={newInstituteForm.name}
                         onChange={(e) => setNewInstituteForm({ ...newInstituteForm, name: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
-                        placeholder="e.g. Panipat Institute of Eng & Tech"
                       />
                     </div>
 
@@ -4701,7 +4668,6 @@ const AutomatedAttendanceSystem = () => {
                         value={newInstituteForm.latitude}
                         onChange={(e) => setNewInstituteForm({ ...newInstituteForm, latitude: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white font-mono"
-                        placeholder="28.976635"
                       />
                     </div>
 
@@ -4713,7 +4679,6 @@ const AutomatedAttendanceSystem = () => {
                         value={newInstituteForm.longitude}
                         onChange={(e) => setNewInstituteForm({ ...newInstituteForm, longitude: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white font-mono"
-                        placeholder="77.032988"
                       />
                     </div>
 
@@ -4724,7 +4689,6 @@ const AutomatedAttendanceSystem = () => {
                         value={newInstituteForm.allowedRadiusMeters}
                         onChange={(e) => setNewInstituteForm({ ...newInstituteForm, allowedRadiusMeters: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white font-mono"
-                        placeholder="500"
                       />
                     </div>
 
@@ -4735,7 +4699,6 @@ const AutomatedAttendanceSystem = () => {
                         value={newInstituteForm.address}
                         onChange={(e) => setNewInstituteForm({ ...newInstituteForm, address: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
-                        placeholder="Sonipat, Haryana"
                       />
                     </div>
                   </div>
@@ -4833,7 +4796,7 @@ const AutomatedAttendanceSystem = () => {
                       </div>
 
                       <div>
-                        <label className="block text-gray-700 font-semibold uppercase mb-1">Full Institute Name *</label>
+                        <label className="block text-gray-700 font-semibold uppercase mb-1">Institute Name *</label>
                         <input
                           type="text"
                           required
@@ -4970,13 +4933,12 @@ const AutomatedAttendanceSystem = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Admin Full Name</label>
+                    <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Admin Name</label>
                     <input
                       type="text"
                       value={createAdminForm.name}
                       onChange={(e) => setCreateAdminForm({ ...createAdminForm, name: e.target.value })}
                       className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
-                      placeholder="e.g. Dr. A. K. Sharma"
                     />
                   </div>
 
@@ -4989,7 +4951,6 @@ const AutomatedAttendanceSystem = () => {
                         value={createAdminForm.email}
                         onChange={(e) => setCreateAdminForm({ ...createAdminForm, email: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
-                        placeholder="e.g. admin@piet.edu"
                       />
                     </div>
 
@@ -5001,7 +4962,6 @@ const AutomatedAttendanceSystem = () => {
                         value={createAdminForm.password}
                         onChange={(e) => setCreateAdminForm({ ...createAdminForm, password: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
-                        placeholder="••••••••"
                       />
                     </div>
                   </div>
