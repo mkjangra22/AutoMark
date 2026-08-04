@@ -92,7 +92,6 @@ const AutomatedAttendanceSystem = () => {
   const [geoLocation, setGeoLocation] = useState(null);
   const [isMockingLocation, setIsMockingLocation] = useState(false);
   const [schoolLocation] = useState({ lat: 28.976635, lng: 77.032988 }); // School location (Sonipat, Haryana)
-  const [seeding, setSeeding] = useState(false);
   const [adminView, setAdminView] = useState('overview');
   const [usersList, setUsersList] = useState([]);
   const [createUserForm, setCreateUserForm] = useState({ email: '', name: '', role: 'student', class: '', assignedClasses: [], rollNo: '', department: '' });
@@ -508,151 +507,7 @@ const AutomatedAttendanceSystem = () => {
 
   const holidays = ['2025-01-26', '2025-08-15', '2025-10-02']; // Example holidays
 
-  const defaultUsers = [
-    {
-      email: 'teacher@automark.com',
-      password: 'password123',
-      userData: {
-        name: 'Taruna Chawla',
-        role: 'teacher',
-        class: '5A',
-        studentId: 'T001',
-        email: 'teacher@automark.com'
-      }
-    },
-    {
-      email: 'admin@automark.com',
-      password: 'password123',
-      userData: {
-        name: 'PIET',
-        role: 'admin',
-        class: '',
-        studentId: 'A001',
-        email: 'admin@automark.com'
-      }
-    },
-    {
-      email: 'mayank@automark.com',
-      password: 'password123',
-      userData: {
-        name: 'Mayank Kumar',
-        role: 'student',
-        class: 'AIML 5th A',
-        studentId: '1',
-        rollNo: '2823392',
-        email: 'mayank@automark.com'
-      }
-    },
-    {
-      email: 'vineet@automark.com',
-      password: 'password123',
-      userData: {
-        name: 'Vineet Jangra',
-        role: 'student',
-        class: '5A',
-        studentId: '5',
-        rollNo: '105',
-        email: 'vineet@automark.com'
-      }
-    }
-  ];
 
-  const handleSeedDatabase = async () => {
-    setSeeding(true);
-    try {
-      // 1. Seed users
-      for (const u of defaultUsers) {
-        try {
-          let credential;
-          try {
-            credential = await createUserWithEmailAndPassword(auth, u.email, u.password);
-          } catch (createErr) {
-            if (createErr.code === 'auth/email-already-in-use') {
-              credential = await signInWithEmailAndPassword(auth, u.email, u.password);
-            } else {
-              throw createErr;
-            }
-          }
-           const uid = credential.user.uid;
-          
-          await setDoc(doc(db, "users", uid), {
-            uid,
-            ...u.userData,
-            descriptors: []
-          });
-        } catch (err) {
-          console.error(`Error seeding user ${u.email}:`, err);
-        }
-      }
-
-      await signOut(auth);
-      setUser(null);
-      setCurrentView('login');
-
-      // 2. Seed default attendance records
-      const initialAttendance = [
-        { studentId: '1', date: '2025-10-01', status: 'present', timestamp: '08:45' },
-        { studentId: '1', date: '2025-10-02', status: 'present', timestamp: '08:50' },
-        { studentId: '1', date: '2025-10-03', status: 'absent', timestamp: null },
-        { studentId: '1', date: '2025-10-04', status: 'present', timestamp: '09:00' },
-        { studentId: '1', date: '2025-10-05', status: 'present', timestamp: '08:55' },
-        
-        { studentId: '2', date: '2025-10-01', status: 'present', timestamp: '08:50' },
-        { studentId: '2', date: '2025-10-02', status: 'present', timestamp: '08:48' },
-        
-        { studentId: '3', date: '2025-10-01', status: 'present', timestamp: '08:40' },
-        { studentId: '3', date: '2025-10-02', status: 'absent', timestamp: null }
-      ];
-
-      for (const record of initialAttendance) {
-        await setDoc(doc(db, "attendance", `${record.studentId}_${record.date}`), record);
-      }
-
-      // 3. Seed default leave requests
-      const initialLeaves = [
-        { studentId: '1', date: '2025-10-06', reason: 'Fever and cold', status: 'pending', createdAt: new Date().toISOString() },
-        { studentId: '2', date: '2025-10-07', reason: 'Family function', status: 'approved', createdAt: new Date().toISOString() }
-      ];
-
-      const leaveSnapshot = await getDocs(collection(db, "leaveRequests"));
-      if (leaveSnapshot.empty) {
-        for (const leave of initialLeaves) {
-          await addDoc(collection(db, "leaveRequests"), leave);
-        }
-      }
-
-      // Reload backend cache
-      try {
-        await fetch(`${FACE_API_URL}/reload`, { method: 'POST' });
-        console.log("Backend student cache reloaded successfully.");
-      } catch (reloadErr) {
-        console.error("Failed to reload backend student cache:", reloadErr);
-      }
-
-      alert("Demo database seeded successfully! You can now log in using:\n- Teacher: teacher / password123\n- Student: mayank / password123\n- Admin: admin / password123");
-    } catch (err) {
-      console.error("Error seeding database:", err);
-      alert(`Error seeding database: ${err.message}`);
-    } finally {
-      setSeeding(false);
-    }
-  };
-
-  // Check and seed automatically on load if empty
-  useEffect(() => {
-    const checkAndSeed = async () => {
-      try {
-        const usersSnap = await getDocs(collection(db, "users"));
-        if (usersSnap.empty) {
-          console.log("Firestore 'users' collection is empty. Seeding database automatically...");
-          await handleSeedDatabase();
-        }
-      } catch (err) {
-        console.error("Error checking database state:", err);
-      }
-    };
-    checkAndSeed();
-  }, []);
 
   // Load leave applications from Firestore
   const loadLeaveApplications = async () => {
@@ -1814,19 +1669,6 @@ const AutomatedAttendanceSystem = () => {
               <span>Sign In as {loginData.role.charAt(0).toUpperCase() + loginData.role.slice(1)}</span>
             </button>
           </form>
-
-          {/* Seed Database Footer Option */}
-          <div className="pt-4 border-t border-gray-100 text-center">
-            <button
-              type="button"
-              onClick={handleSeedDatabase}
-              disabled={seeding}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50 transition cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${seeding ? 'animate-spin' : ''}`} />
-              <span>{seeding ? "Seeding Database..." : "Seed / Reset Demo Database"}</span>
-            </button>
-          </div>
 
         </div>
       </div>
