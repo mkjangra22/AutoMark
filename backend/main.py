@@ -46,13 +46,25 @@ LAST_CACHE_TIME = 0.0
 detector = load_face_detector()
 
 
+def get_model_path(institute_id: str | None = None) -> Path:
+    if institute_id and institute_id.strip() and institute_id != "default":
+        cleaned_id = "".join(c for c in institute_id if c.isalnum() or c in ("-", "_")).lower()
+        if cleaned_id:
+            tenant_dir = ROOT_DIR / "private-models" / cleaned_id
+            tenant_dir.mkdir(parents=True, exist_ok=True)
+            return tenant_dir / "face_model.pkl"
+    return MODEL_PATH
+
+
 class RecognizeRequest(BaseModel):
     image: str
+    institute_id: str | None = None
 
 
 class RegisterFacesRequest(BaseModel):
     student_id: str
     images: list[str]
+    institute_id: str | None = None
 
 
 def decode_image(encoded_image: str) -> np.ndarray:
@@ -114,6 +126,7 @@ def fetch_students_from_firestore():
                     "rollNo": fields.get("rollNo", {}).get("stringValue", "N/A"),
                     "modelLabel": fields.get("faceModelLabel", {}).get("stringValue", uid),
                     "firstName": name.split()[0] if name else "",
+                    "instituteId": fields.get("instituteId", {}).get("stringValue", ""),
                 }
             page_token = data.get("nextPageToken")
             if not page_token:
@@ -134,9 +147,11 @@ def refresh_student_cache(force: bool = False):
         LAST_CACHE_TIME = time.time()
 
 
-def resolve_student(model_label: str):
+def resolve_student(model_label: str, institute_id: str | None = None):
     normalized_label = model_label.casefold()
     for student in STUDENT_CACHE.values():
+        if institute_id and student.get("instituteId") and student.get("instituteId") != institute_id:
+            continue
         if normalized_label in {
             student["uid"].casefold(),
             student["modelLabel"].casefold(),
@@ -165,8 +180,9 @@ def unknown_response(reason: str, box=None, confidence: float = 0.0):
     }
 
 
-def add_student_to_model(student_id: str, features: list[np.ndarray]) -> None:
-    model = load_model(MODEL_PATH)
+def add_student_to_model(student_id: str, features: list[np.ndarray], institute_id: str | None = None) -> None:
+    model_path = get_model_path(institute_id)
+    model = load_model(model_path)
     feature_matrix = np.vstack(features)
     centroid = feature_matrix.mean(axis=0)
     eps = 1e-10
@@ -177,15 +193,17 @@ def add_student_to_model(student_id: str, features: list[np.ndarray]) -> None:
     model.centroids[student_id] = centroid
     p95 = float(np.percentile(distances, 95)) if len(distances) > 0 else 10.0
     model.acceptance_distances[student_id] = max(p95 * 1.6, 14.0)
-    save_model(model, MODEL_PATH)
+    save_model(model, model_path)
 
 
 @app.get("/health")
-def health():
-    model = load_model(MODEL_PATH)
+def health(institute_id: str | None = None):
+    model_path = get_model_path(institute_id)
+    model = load_model(model_path)
     return {
         "status": "ok",
         "engine": "opencv-haar-lbp",
+        "institute_id": institute_id or "default",
         "trained_labels": sorted(model.centroids),
         "cached_students": len(STUDENT_CACHE),
     }
@@ -223,7 +241,7 @@ def register_faces(request: RegisterFacesRequest):
             "reason": f"At least {min_required} clear, single-face samples are required (accepted {len(features)} of {len(request.images)}). Upload clearer photos or align face in camera.",
         }
 
-    add_student_to_model(request.student_id, features)
+    add_student_to_model(request.student_id, features, request.institute_id)
     return {"registered": True, "accepted": len(features), "rejected": rejected, "label": request.student_id}
 
 
@@ -234,16 +252,17 @@ def recognize(request: RecognizeRequest):
     if reason:
         return unknown_response(reason)
 
-    model = load_model(MODEL_PATH)
+    model_path = get_model_path(request.institute_id)
+    model = load_model(model_path)
     model_label, confidence = model.predict(lbph_features(face.image))
     box = box_response(face)
     if model_label == "unknown":
         return unknown_response("Face does not match a registered student confidently.", box, confidence)
 
     refresh_student_cache()
-    student = resolve_student(model_label)
+    student = resolve_student(model_label, request.institute_id)
     if student is None:
-        return unknown_response("Recognized face is not linked to an active student account.", box, confidence)
+        return unknown_response("Recognized face is not linked to an active student account in this institute.", box, confidence)
 
     return {
         "match": True,

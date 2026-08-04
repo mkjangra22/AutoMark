@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, User, Calendar, BarChart3, MapPin, Bell, LogOut, Menu, X, Key, ShieldCheck, Save, Upload, Edit3, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, UserCheck, RefreshCw } from 'lucide-react';
+import { Camera, User, Calendar, BarChart3, MapPin, Bell, LogOut, Menu, X, Key, ShieldCheck, Save, Upload, Edit3, Lock, CheckCircle2, AlertCircle, Eye, EyeOff, UserCheck, RefreshCw, Building2, Globe, Plus, Search, Building, Check, Trash2 } from 'lucide-react';
 import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import { db, auth, storage, firebaseConfig } from './firebase';
 import { initializeApp, getApps } from "firebase/app";
@@ -81,7 +81,15 @@ const compressImageToBase64 = async (rawPngDataUrl, maxWidth = 320, maxHeight = 
 
 const AutomatedAttendanceSystem = () => {
   const [user, setUser] = useState(null);
-  const [loginData, setLoginData] = useState({ username: '', password: '', role: 'teacher' });
+  const [institutesList, setInstitutesList] = useState([]);
+  const [currentInstitute, setCurrentInstitute] = useState(null);
+  const [organizerView, setOrganizerView] = useState('institutes'); // 'institutes' | 'super_users' | 'analytics'
+  const [newInstituteForm, setNewInstituteForm] = useState({ code: '', name: '', latitude: 28.976635, longitude: 77.032988, allowedRadiusMeters: 500, address: '', logoUrl: '' });
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
+  const [signupData, setSignupData] = useState({ name: '', email: '', password: '', role: 'student', instituteCode: '', class: '', rollNo: '', department: '' });
+  const [signupMessage, setSignupMessage] = useState({ type: '', text: '' });
+  const [isSigningUp, setIsSigningUp] = useState(false);
+  const [loginData, setLoginData] = useState({ username: '', password: '', role: 'teacher', instituteCode: '' });
   const [attendanceData, setAttendanceData] = useState({});
   const [leaveApplications, setLeaveApplications] = useState({}); // State for leave applications
   const [leaveReason, setLeaveReason] = useState(''); // State for leave reason input
@@ -91,10 +99,10 @@ const AutomatedAttendanceSystem = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [geoLocation, setGeoLocation] = useState(null);
   const [isMockingLocation, setIsMockingLocation] = useState(false);
-  const [schoolLocation] = useState({ lat: 28.976635, lng: 77.032988 }); // School location (Sonipat, Haryana)
+  const [schoolLocation] = useState({ lat: 28.976635, lng: 77.032988 }); // Default School location (fallback)
   const [adminView, setAdminView] = useState('overview');
   const [usersList, setUsersList] = useState([]);
-  const [createUserForm, setCreateUserForm] = useState({ email: '', name: '', role: 'student', class: '', assignedClasses: [], rollNo: '', department: '' });
+  const [createUserForm, setCreateUserForm] = useState({ email: '', name: '', role: 'student', class: '', assignedClasses: [], rollNo: '', department: '', instituteId: '' });
   const [editUserForm, setEditUserForm] = useState(null);
   const [createdCredentials, setCreatedCredentials] = useState(null);
   const [classesList, setClassesList] = useState([]);
@@ -539,7 +547,9 @@ const AutomatedAttendanceSystem = () => {
       querySnapshot.forEach(docSnap => {
         const data = docSnap.data();
         if (data.deleted !== true) {
-          list.push({ uid: docSnap.id, ...data });
+          if (user?.role === 'organizer' || user?.role === 'super_admin' || !user?.instituteId || data.instituteId === user?.instituteId) {
+            list.push({ uid: docSnap.id, ...data });
+          }
         }
       });
       setUsersList(list);
@@ -549,7 +559,7 @@ const AutomatedAttendanceSystem = () => {
   };
 
   useEffect(() => {
-    if (user?.role === 'admin') {
+    if (user?.role === 'admin' || user?.role === 'organizer' || user?.role === 'super_admin') {
       loadAllUsers();
     }
   }, [user]);
@@ -560,29 +570,14 @@ const AutomatedAttendanceSystem = () => {
       const list = [];
       querySnapshot.forEach(docSnap => {
         const data = docSnap.data();
-        list.push({ id: docSnap.id, ...data });
-      });
-
-      if (list.length === 0) {
-        const defaultClasses = [
-          { id: '5A', name: '5A', department: 'Primary' },
-          { id: 'AIML 5th A', name: 'AIML 5th A', department: 'Computer Science' },
-          { id: 'CSE 3B', name: 'CSE 3B', department: 'Computer Science' }
-        ];
-        for (const cls of defaultClasses) {
-          await setDoc(doc(db, "classes", cls.id), {
-            name: cls.name,
-            department: cls.department,
-            createdAt: new Date().toISOString()
-          });
+        if (user?.role === 'organizer' || user?.role === 'super_admin' || !user?.instituteId || data.instituteId === user?.instituteId) {
+          list.push({ id: docSnap.id, ...data });
         }
-        setClassesList(defaultClasses);
-      } else {
-        list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setClassesList(list);
-      }
-    } catch (error) {
-      console.error("Error loading classes from Firestore:", error);
+      });
+      list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      setClassesList(list);
+    } catch (err) {
+      console.error("Error loading classes:", err);
     }
   };
 
@@ -694,63 +689,160 @@ const AutomatedAttendanceSystem = () => {
     }
   };
 
+  const loadInstitutes = async () => {
+    try {
+      const snap = await getDocs(collection(db, "institutes"));
+      const list = [];
+      snap.forEach(docSnap => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setInstitutesList(list);
+      return list;
+    } catch (err) {
+      console.error("Error loading institutes:", err);
+      return [];
+    }
+  };
+
+  useEffect(() => {
+    loadInstitutes();
+  }, []);
+
+  const handleCreateInstitute = async (e) => {
+    if (e) e.preventDefault();
+    if (!newInstituteForm.code.trim() || !newInstituteForm.name.trim()) {
+      alert("Please provide both Institute Code and Institute Name.");
+      return;
+    }
+    const cleanCode = newInstituteForm.code.trim().toUpperCase();
+    const docId = cleanCode.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+    try {
+      const payload = {
+        id: docId,
+        code: cleanCode,
+        name: newInstituteForm.name.trim(),
+        latitude: parseFloat(newInstituteForm.latitude) || 28.976635,
+        longitude: parseFloat(newInstituteForm.longitude) || 77.032988,
+        allowedRadiusMeters: parseInt(newInstituteForm.allowedRadiusMeters, 10) || 500,
+        address: newInstituteForm.address.trim(),
+        logoUrl: newInstituteForm.logoUrl || DEFAULT_PROFILE_IMAGE,
+        status: 'active',
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, "institutes", docId), payload);
+      alert(`Institute "${payload.name}" (${payload.code}) onboarded successfully!`);
+      setNewInstituteForm({ code: '', name: '', latitude: 28.976635, longitude: 77.032988, allowedRadiusMeters: 500, address: '', logoUrl: '' });
+      await loadInstitutes();
+    } catch (err) {
+      console.error("Error creating institute:", err);
+      alert(`Failed to onboard institute: ${err.message}`);
+    }
+  };
+
   const handleLogin = async () => {
-    if (loginData.username && loginData.password) {
-      let email = loginData.username;
-      if (!email.includes('@')) {
-        email = `${email.toLowerCase().trim()}@automark.com`;
-      }
-      try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, loginData.password);
-        const firebaseUser = userCredential.user;
-
-        // Fetch user doc from Firestore
-        const userDocRef = doc(db, "users", firebaseUser.uid);
-        const userDoc = await getDoc(userDocRef);
-
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          if (userData.disabled === true || userData.deleted === true) {
-            alert("Access denied. Your account is disabled or deleted.");
-            await signOut(auth);
-            return;
-          }
-          if (userData.role !== loginData.role) {
-            alert(`Access denied. You are not registered as a ${loginData.role}.`);
-            await signOut(auth);
-            return;
-          }
-
-          setUser({
-            role: userData.role,
-            name: userData.name,
-            id: userData.studentId || userData.uid,
-            uid: firebaseUser.uid,
-            docId: userDoc.id,
-            class: userData.class || '',
-            rollNo: userData.rollNo || '',
-            department: userData.department || '',
-            email: userData.email,
-            photo: userData.photo || ''
-          });
-
-          if (userData.role === 'teacher') {
-            setCurrentView('teacher-dashboard');
-          } else if (userData.role === 'student') {
-            setCurrentView('student-dashboard');
-          } else if (userData.role === 'admin') {
-            setCurrentView('admin-dashboard');
-          }
-        } else {
-          alert("User profile not found in database.");
-          await signOut(auth);
-        }
-      } catch (error) {
-        console.error("Login error:", error);
-        alert(`Authentication failed: ${error.message}`);
-      }
-    } else {
+    if (!loginData.username || !loginData.password) {
       alert("Please fill in both username/email and password.");
+      return;
+    }
+
+    if (loginData.role !== 'organizer' && loginData.role !== 'super_admin' && !loginData.instituteCode.trim()) {
+      alert("Please select or enter an Institute Code to log in.");
+      return;
+    }
+
+    let email = loginData.username;
+    if (!email.includes('@')) {
+      email = `${email.toLowerCase().trim()}@automark.com`;
+    }
+
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, loginData.password);
+      const firebaseUser = userCredential.user;
+
+      // Fetch user doc from Firestore
+      const userDocRef = doc(db, "users", firebaseUser.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        if (userData.disabled === true || userData.deleted === true) {
+          alert("Access denied. Your account is disabled or deleted.");
+          await signOut(auth);
+          return;
+        }
+
+        if (userData.role !== loginData.role && !(loginData.role === 'organizer' && userData.role === 'super_admin')) {
+          alert(`Access denied. You are registered as a "${userData.role}", but selected "${loginData.role}".`);
+          await signOut(auth);
+          return;
+        }
+
+        if (userData.role === 'organizer' || userData.role === 'super_admin') {
+          setUser({ ...userData, uid: firebaseUser.uid, role: 'organizer' });
+          setCurrentView('organizer-dashboard');
+          loadInstitutes();
+          return;
+        }
+
+        // Validate Institute (Option B)
+        const selectedCode = loginData.instituteCode.trim().toUpperCase();
+        let matchedInst = institutesList.find(inst => inst.code.toUpperCase() === selectedCode || inst.id.toLowerCase() === selectedCode.toLowerCase());
+
+        if (!matchedInst) {
+          const instDocId = selectedCode.toLowerCase().replace(/[^a-z0-9]/g, '_');
+          const instSnap = await getDoc(doc(db, "institutes", instDocId));
+          if (instSnap.exists()) {
+            matchedInst = { id: instSnap.id, ...instSnap.data() };
+          }
+        }
+
+        if (userData.instituteId && matchedInst && userData.instituteId !== matchedInst.id) {
+          alert(`Access denied. Your account belongs to institute ID "${userData.instituteId}". Please check your Institute Code.`);
+          await signOut(auth);
+          return;
+        }
+
+        const activeInstitute = matchedInst || {
+          id: userData.instituteId || 'default',
+          name: userData.instituteName || 'School Campus',
+          code: selectedCode || 'DEF01',
+          latitude: 28.976635,
+          longitude: 77.032988,
+          allowedRadiusMeters: 500
+        };
+
+        setCurrentInstitute(activeInstitute);
+        setUser({
+          role: userData.role,
+          name: userData.name,
+          id: userData.studentId || userData.uid,
+          uid: firebaseUser.uid,
+          docId: userDoc.id,
+          class: userData.class || '',
+          rollNo: userData.rollNo || '',
+          department: userData.department || '',
+          email: userData.email,
+          photo: userData.photo || '',
+          instituteId: activeInstitute.id
+        });
+
+        if (userData.role === 'teacher') {
+          setCurrentView('teacher-dashboard');
+        } else if (userData.role === 'student') {
+          setCurrentView('student-dashboard');
+        } else if (userData.role === 'admin') {
+          setCurrentView('admin-dashboard');
+        }
+      } else {
+        alert("User profile not found in database.");
+        await signOut(auth);
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      alert(`Authentication failed: ${error.message}`);
     }
   };
 
@@ -761,8 +853,9 @@ const AutomatedAttendanceSystem = () => {
       console.error("Error signing out:", err);
     }
     setUser(null);
+    setCurrentInstitute(null);
     setCurrentView('login');
-    setLoginData({ username: '', password: '', role: 'teacher' });
+    setLoginData({ username: '', password: '', role: 'teacher', instituteCode: '' });
   };
 
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -781,11 +874,15 @@ const AutomatedAttendanceSystem = () => {
   const isWithinSchoolPremises = () => {
     if (isMockingLocation) return true;
     if (!geoLocation) return false;
+    const targetLat = currentInstitute?.latitude ?? schoolLocation.lat;
+    const targetLng = currentInstitute?.longitude ?? schoolLocation.lng;
+    const maxRadius = currentInstitute?.allowedRadiusMeters ?? 500;
+
     const distance = calculateDistance(
       geoLocation.lat, geoLocation.lng,
-      schoolLocation.lat, schoolLocation.lng
+      targetLat, targetLng
     );
-    return distance <= 500; // Within 500 meters of school
+    return distance <= maxRadius;
   };
 
   const markAttendance = async (studentId, status, photoUrl = null, silent = false) => {
@@ -1569,50 +1666,103 @@ const AutomatedAttendanceSystem = () => {
                 Select Login Portal
               </label>
               
-              <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 shadow-inner">
+              <div className="grid grid-cols-4 gap-1 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 shadow-inner">
                 <button
                   type="button"
                   onClick={() => setLoginData({...loginData, role: 'teacher'})}
-                  className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
                     loginData.role === 'teacher'
-                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                      ? 'bg-indigo-600 text-white shadow-md'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
                   }`}
                 >
-                  <UserCheck className="w-4 h-4" />
+                  <UserCheck className="w-3.5 h-3.5" />
                   <span>Teacher</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setLoginData({...loginData, role: 'student'})}
-                  className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
                     loginData.role === 'student'
-                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                      ? 'bg-indigo-600 text-white shadow-md'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
                   }`}
                 >
-                  <User className="w-4 h-4" />
+                  <User className="w-3.5 h-3.5" />
                   <span>Student</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setLoginData({...loginData, role: 'admin'})}
-                  className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
                     loginData.role === 'admin'
-                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                      ? 'bg-indigo-600 text-white shadow-md'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
                   }`}
                 >
-                  <ShieldCheck className="w-4 h-4" />
+                  <ShieldCheck className="w-3.5 h-3.5" />
                   <span>Admin</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setLoginData({...loginData, role: 'organizer'})}
+                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                    loginData.role === 'organizer' || loginData.role === 'super_admin'
+                      ? 'bg-purple-600 text-white shadow-md'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Organizer</span>
                 </button>
               </div>
             </div>
 
             {/* Inputs Group */}
             <div className="space-y-4">
+              {loginData.role !== 'organizer' && loginData.role !== 'super_admin' && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Institute Code <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                      <Building2 className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="instituteCode"
+                      type="text"
+                      required={loginData.role !== 'organizer' && loginData.role !== 'super_admin'}
+                      value={loginData.instituteCode}
+                      onChange={(e) => setLoginData({...loginData, instituteCode: e.target.value.toUpperCase()})}
+                      className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white uppercase font-mono tracking-wider"
+                      placeholder="e.g. PIET01, DPS02"
+                    />
+                  </div>
+                  {institutesList.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1 items-center text-[11px] text-gray-500">
+                      <span className="font-semibold text-gray-600">Select Institute:</span>
+                      {institutesList.map(inst => (
+                        <button
+                          key={inst.id}
+                          type="button"
+                          onClick={() => setLoginData({...loginData, instituteCode: inst.code})}
+                          className={`px-2 py-0.5 rounded font-mono font-bold transition border text-[11px] ${
+                            loginData.instituteCode === inst.code 
+                              ? 'bg-indigo-600 text-white border-indigo-600' 
+                              : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                          }`}
+                        >
+                          {inst.code}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1">
                   Username / Email
@@ -2778,6 +2928,7 @@ const AutomatedAttendanceSystem = () => {
       await signOut(secondaryAuth);
       
       // 3. Write user profile to Firestore
+      const targetInstId = createUserForm.instituteId || currentInstitute?.id || (user?.instituteId || '');
       const userProfile = {
         uid: newUser.uid,
         email: createUserForm.email,
@@ -2787,6 +2938,7 @@ const AutomatedAttendanceSystem = () => {
         rollNo: createUserForm.role === 'student' ? (createUserForm.rollNo || '') : '',
         department: createUserForm.department || '',
         studentId: newUser.uid, // Use Firebase UID as the studentId
+        instituteId: targetInstId,
         photo: '',
         disabled: false,
         deleted: false,
@@ -2803,7 +2955,7 @@ const AutomatedAttendanceSystem = () => {
       });
       
       // Reset creation form
-      setCreateUserForm({ email: '', name: '', role: 'student', class: '', rollNo: '', department: '' });
+      setCreateUserForm({ email: '', name: '', role: 'student', class: '', rollNo: '', department: '', instituteId: '' });
       
       // Refresh directory listings
       await loadAllUsers();
@@ -2987,7 +3139,22 @@ const AutomatedAttendanceSystem = () => {
       <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-indigo-600 selection:text-white">
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/80 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <h1 className="text-xl font-bold text-slate-900">Admin Dashboard</h1>
+            <div className="flex items-center space-x-3">
+              <Building2 className="w-6 h-6 text-indigo-600" />
+              <div>
+                <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  {currentInstitute?.name || 'Institute Admin Dashboard'}
+                  {currentInstitute?.code && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">
+                      {currentInstitute.code}
+                    </span>
+                  )}
+                </h1>
+                <span className="text-xs text-slate-500 font-medium block">
+                  Campus Location: {currentInstitute?.latitude || 28.976635}, {currentInstitute?.longitude || 77.032988} (Radius: {currentInstitute?.allowedRadiusMeters || 500}m)
+                </span>
+              </div>
+            </div>
             <div className="flex items-center space-x-4">
               <span className="text-sm font-semibold text-slate-700">{user?.name}</span>
               <button 
@@ -4016,11 +4183,316 @@ const AutomatedAttendanceSystem = () => {
     );
   };
 
+  const renderOrganizerDashboard = () => {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
+        {/* Organizer Header */}
+        <header className="bg-slate-950 border-b border-slate-800 sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-20">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-purple-600/20 border border-purple-500/30 rounded-xl">
+                  <Globe className="w-6 h-6 text-purple-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-black tracking-tight text-white">AutoMark Organizer</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
+                      Platform Organizer
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-400 block font-medium">Multi-Institute Platform Management</span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <div className="hidden sm:flex items-center gap-4 text-xs font-semibold px-4 py-2 bg-slate-900 rounded-xl border border-slate-800 text-slate-300">
+                  <span>🏢 Institutes: <strong className="text-purple-400 font-bold">{institutesList.length}</strong></span>
+                  <span>👥 Users: <strong className="text-emerald-400 font-bold">{usersList.length}</strong></span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 transition cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Content Area */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+          {/* Navigation Bar */}
+          <div className="flex space-x-2 border-b border-slate-800 pb-4">
+            <button
+              onClick={() => setOrganizerView('institutes')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
+                organizerView === 'institutes'
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Institutes Directory</span>
+            </button>
+
+            <button
+              onClick={() => setOrganizerView('super_users')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
+                organizerView === 'super_users'
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <UserCheck className="w-4 h-4" />
+              <span>Create Institute Admin</span>
+            </button>
+
+            <button
+              onClick={() => setOrganizerView('analytics')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
+                organizerView === 'analytics'
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>Platform Analytics</span>
+            </button>
+          </div>
+
+          {/* TAB 1: Institutes Directory & Onboarding */}
+          {organizerView === 'institutes' && (
+            <div className="space-y-8">
+              {/* Onboard New Institute Form */}
+              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-6">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      <Plus className="w-5 h-5 text-purple-400" />
+                      <span>Onboard New Institute</span>
+                    </h3>
+                    <p className="text-xs text-slate-400">Register a new school or college on the platform with campus location bounds.</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCreateInstitute} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Institute Code *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newInstituteForm.code}
+                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, code: e.target.value.toUpperCase() })}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm font-mono uppercase text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="e.g. PIET01"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Full Institute Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newInstituteForm.name}
+                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, name: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="e.g. Panipat Institute of Eng & Tech"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Campus Latitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={newInstituteForm.latitude}
+                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, latitude: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
+                      placeholder="28.976635"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Campus Longitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={newInstituteForm.longitude}
+                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, longitude: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
+                      placeholder="77.032988"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Geofence Radius (Meters)</label>
+                    <input
+                      type="number"
+                      value={newInstituteForm.allowedRadiusMeters}
+                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, allowedRadiusMeters: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
+                      placeholder="500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Campus Address</label>
+                    <input
+                      type="text"
+                      value={newInstituteForm.address}
+                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, address: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="Sonipat, Haryana"
+                    />
+                  </div>
+
+                  <div className="md:col-span-3 flex justify-end">
+                    <button
+                      type="submit"
+                      className="px-6 py-3 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30 transition cursor-pointer flex items-center gap-2"
+                    >
+                      <Building2 className="w-4 h-4" />
+                      <span>Onboard Institute</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Onboarded Institutes Table */}
+              <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden space-y-4 p-6">
+                <h3 className="text-lg font-bold text-white">Onboarded Institutes ({institutesList.length})</h3>
+                {institutesList.length === 0 ? (
+                  <div className="text-center py-12 text-slate-500 text-sm">
+                    No institutes onboarded yet. Fill out the form above to onboard the first school or institute.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs text-slate-300">
+                      <thead className="bg-slate-900 text-slate-400 font-semibold uppercase tracking-wider">
+                        <tr>
+                          <th className="p-3">Code</th>
+                          <th className="p-3">Institute Name</th>
+                          <th className="p-3">Campus GPS Bounds</th>
+                          <th className="p-3">Geofence Radius</th>
+                          <th className="p-3">Address</th>
+                          <th className="p-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 font-medium">
+                        {institutesList.map((inst) => (
+                          <tr key={inst.id} className="hover:bg-slate-900/50">
+                            <td className="p-3 font-mono font-bold text-purple-400">{inst.code}</td>
+                            <td className="p-3 font-bold text-white">{inst.name}</td>
+                            <td className="p-3 font-mono text-slate-400">{inst.latitude}, {inst.longitude}</td>
+                            <td className="p-3 font-mono text-emerald-400">{inst.allowedRadiusMeters || 500} m</td>
+                            <td className="p-3 text-slate-400">{inst.address || 'N/A'}</td>
+                            <td className="p-3">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                                Active
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: Institute Admin Provisioning */}
+          {organizerView === 'super_users' && (
+            <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-6">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-purple-400" />
+                <span>Create & Assign Institute Admin</span>
+              </h3>
+              <p className="text-xs text-slate-400">Create an Admin user and link them to one of the onboarded institutes.</p>
+
+              <form onSubmit={handleCreateUser} className="space-y-4 max-w-xl">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Target Institute *</label>
+                  <select
+                    required
+                    value={createUserForm.instituteId}
+                    onChange={(e) => setCreateUserForm({ ...createUserForm, instituteId: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">-- Select Target Institute --</option>
+                    {institutesList.map(inst => (
+                      <option key={inst.id} value={inst.id}>{inst.name} ({inst.code})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Admin Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={createUserForm.name}
+                    onChange={(e) => setCreateUserForm({ ...createUserForm, name: e.target.value, role: 'admin' })}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="e.g. Dr. A. K. Sharma"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Admin Email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={createUserForm.email}
+                    onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value, role: 'admin' })}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="e.g. admin@piet.edu"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="px-6 py-3 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30 transition cursor-pointer"
+                >
+                  Create Institute Admin
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* TAB 3: Platform Analytics */}
+          {organizerView === 'analytics' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Total Onboarded Institutes</span>
+                <span className="text-4xl font-extrabold text-purple-400 block">{institutesList.length}</span>
+              </div>
+              <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Total Platform Users</span>
+                <span className="text-4xl font-extrabold text-emerald-400 block">{usersList.length}</span>
+              </div>
+              <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
+                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">System Status</span>
+                <span className="text-4xl font-extrabold text-blue-400 block">Active Platform</span>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  };
+
   if (!user) {
     return renderLogin();
   }
 
   switch (currentView) {
+    case 'organizer-dashboard':
+    case 'super-admin-dashboard':
+      return renderOrganizerDashboard();
     case 'teacher-dashboard':
       return renderTeacherDashboard();
     case 'student-dashboard':
