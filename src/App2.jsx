@@ -89,7 +89,7 @@ const AutomatedAttendanceSystem = () => {
   const [createAdminForm, setCreateAdminForm] = useState({ instituteId: '', name: '', email: '', password: '' });
   const [createdAdminSummary, setCreatedAdminSummary] = useState(null);
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
-  const [signupData, setSignupData] = useState({ name: '', email: '', password: '', role: 'student', instituteCode: '', class: '', rollNo: '', department: '' });
+  const [signupData, setSignupData] = useState({ name: '', email: '', password: '', role: 'student', instituteCode: '', class: '', rollNo: '', department: '', parentPhone: '', emergencyContact: '' });
   const [signupMessage, setSignupMessage] = useState({ type: '', text: '' });
   const [isSigningUp, setIsSigningUp] = useState(false);
   const [loginData, setLoginData] = useState({ username: '', password: '', role: 'teacher', instituteCode: '' });
@@ -105,7 +105,7 @@ const AutomatedAttendanceSystem = () => {
   const [schoolLocation] = useState({ lat: 28.976635, lng: 77.032988 }); // Default School location (fallback)
   const [adminView, setAdminView] = useState('overview');
   const [usersList, setUsersList] = useState([]);
-  const [createUserForm, setCreateUserForm] = useState({ email: '', name: '', role: 'student', class: '', assignedClasses: [], rollNo: '', department: '', instituteId: '' });
+  const [createUserForm, setCreateUserForm] = useState({ email: '', name: '', role: 'student', class: '', assignedClasses: [], rollNo: '', department: '', instituteId: '', parentPhone: '', emergencyContact: '' });
   const [editUserForm, setEditUserForm] = useState(null);
   const [createdCredentials, setCreatedCredentials] = useState(null);
   const [classesList, setClassesList] = useState([]);
@@ -132,6 +132,8 @@ const AutomatedAttendanceSystem = () => {
         class: user.class || '',
         rollNo: user.rollNo || '',
         department: user.department || '',
+        parentPhone: user.parentPhone || '',
+        emergencyContact: user.emergencyContact || '',
         photo: user.photo || ''
       });
     }
@@ -157,6 +159,8 @@ const AutomatedAttendanceSystem = () => {
         class: profileForm.class.trim(),
         rollNo: profileForm.rollNo.trim(),
         department: profileForm.department.trim(),
+        parentPhone: (profileForm.parentPhone || '').trim(),
+        emergencyContact: (profileForm.emergencyContact || '').trim(),
         photo: profileForm.photo
       };
 
@@ -1017,6 +1021,8 @@ const AutomatedAttendanceSystem = () => {
         class: signupData.role === 'student' ? signupData.class.trim() : '',
         rollNo: signupData.role === 'student' ? signupData.rollNo.trim() : '',
         department: signupData.department.trim(),
+        parentPhone: (signupData.parentPhone || '').trim(),
+        emergencyContact: (signupData.emergencyContact || '').trim(),
         studentId: newUser.uid,
         photo: '',
         disabled: false,
@@ -2118,40 +2124,63 @@ const AutomatedAttendanceSystem = () => {
                 />
               </div>
 
-              {/* Class Dropdown & Roll No (Only for Students) */}
+              {/* Class Dropdown, Roll No & Parent Contacts (Only for Students) */}
               {signupData.role === 'student' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">Class / Section *</label>
-                    <select
-                      required
-                      value={signupData.class}
-                      onChange={(e) => setSignupData({...signupData, class: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="">-- Select Class / Section --</option>
-                      {classesList.map(cls => (
-                        <option key={cls.id || cls.name} value={cls.name || cls.id}>
-                          {cls.name} {cls.department ? `(${cls.department})` : ''}
-                        </option>
-                      ))}
-                      {classesList.length === 0 && (
-                        <>
-                          <option value="5A">5A (Primary)</option>
-                          <option value="AIML 5th A">AIML 5th A (Computer Science)</option>
-                          <option value="CSE 3B">CSE 3B (Computer Science)</option>
-                        </>
-                      )}
-                    </select>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Class / Section *</label>
+                      <select
+                        required
+                        value={signupData.class}
+                        onChange={(e) => setSignupData({...signupData, class: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="">-- Select Class / Section --</option>
+                        {classesList.map(cls => (
+                          <option key={cls.id || cls.name} value={cls.name || cls.id}>
+                            {cls.name} {cls.department ? `(${cls.department})` : ''}
+                          </option>
+                        ))}
+                        {classesList.length === 0 && (
+                          <>
+                            <option value="5A">5A (Primary)</option>
+                            <option value="AIML 5th A">AIML 5th A (Computer Science)</option>
+                            <option value="CSE 3B">CSE 3B (Computer Science)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Roll Number</label>
+                      <input
+                        type="text"
+                        value={signupData.rollNo}
+                        onChange={(e) => setSignupData({...signupData, rollNo: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">Roll Number</label>
-                    <input
-                      type="text"
-                      value={signupData.rollNo}
-                      onChange={(e) => setSignupData({...signupData, rollNo: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
-                    />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Parent / Guardian Phone</label>
+                      <input
+                        type="tel"
+                        value={signupData.parentPhone || ''}
+                        onChange={(e) => setSignupData({...signupData, parentPhone: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Emergency Contact</label>
+                      <input
+                        type="tel"
+                        value={signupData.emergencyContact || ''}
+                        onChange={(e) => setSignupData({...signupData, emergencyContact: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
@@ -3122,12 +3151,32 @@ const AutomatedAttendanceSystem = () => {
                         />
                       </div>
 
-                      <div className="sm:col-span-2">
+                      <div>
                         <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Department / Branch</label>
                         <input
                           type="text"
                           value={profileForm.department}
                           onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Parent / Guardian Phone</label>
+                        <input
+                          type="tel"
+                          value={profileForm.parentPhone || ''}
+                          onChange={(e) => setProfileForm({ ...profileForm, parentPhone: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">Emergency Contact</label>
+                        <input
+                          type="tel"
+                          value={profileForm.emergencyContact || ''}
+                          onChange={(e) => setProfileForm({ ...profileForm, emergencyContact: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                       </div>
@@ -3305,6 +3354,8 @@ const AutomatedAttendanceSystem = () => {
         class: createUserForm.class || '',
         rollNo: createUserForm.role === 'student' ? (createUserForm.rollNo || '') : '',
         department: createUserForm.department || '',
+        parentPhone: (createUserForm.parentPhone || '').trim(),
+        emergencyContact: (createUserForm.emergencyContact || '').trim(),
         studentId: newUser.uid, // Use Firebase UID as the studentId
         instituteId: targetInstId,
         photo: '',
@@ -3368,6 +3419,8 @@ const AutomatedAttendanceSystem = () => {
         class: editUserForm.class || '',
         rollNo: editUserForm.role === 'student' ? (editUserForm.rollNo || '') : '',
         department: editUserForm.department || '',
+        parentPhone: (editUserForm.parentPhone || '').trim(),
+        emergencyContact: (editUserForm.emergencyContact || '').trim(),
         disabled: editUserForm.disabled
       };
       
@@ -3538,46 +3591,50 @@ const AutomatedAttendanceSystem = () => {
         </header>
 
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="mb-6 border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
+          <div className="mb-6 flex">
+            <div className="inline-flex items-center gap-1 bg-slate-100/90 p-1.5 rounded-full border border-slate-200/80 shadow-inner">
               <button
                 id="admin-tab-overview"
                 onClick={() => setAdminView('overview')}
-                className={`pb-4 px-1 border-b-2 font-medium text-sm transition ${
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-bold transition cursor-pointer ${
                   adminView === 'overview'
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 font-semibold'
                 }`}
               >
-                School Overview
+                <BarChart3 className={`w-4 h-4 ${adminView === 'overview' ? 'text-indigo-600' : 'text-slate-500'}`} />
+                <span>Dashboard</span>
               </button>
+
               <button
                 id="admin-tab-users"
                 onClick={() => {
                   setAdminView('users');
                   loadAllUsers();
                 }}
-                className={`pb-4 px-1 border-b-2 font-medium text-sm transition ${
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-bold transition cursor-pointer ${
                   adminView === 'users'
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 font-semibold'
                 }`}
               >
-                User Management
+                <UserCheck className={`w-4 h-4 ${adminView === 'users' ? 'text-indigo-600' : 'text-slate-500'}`} />
+                <span>User Management</span>
               </button>
+
               <button
                 id="admin-tab-profile"
                 onClick={() => setAdminView('profile')}
-                className={`pb-4 px-1 border-b-2 font-medium text-sm transition flex items-center gap-1.5 ${
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-bold transition cursor-pointer ${
                   adminView === 'profile'
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'bg-white text-indigo-600 shadow-sm border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 font-semibold'
                 }`}
               >
-                <User className="w-4 h-4" />
+                <User className={`w-4 h-4 ${adminView === 'profile' ? 'text-indigo-600' : 'text-slate-500'}`} />
                 <span>My Profile</span>
               </button>
-            </nav>
+            </div>
           </div>
 
           {adminView === 'overview' && (
@@ -3780,7 +3837,6 @@ const AutomatedAttendanceSystem = () => {
                       >
                         <option value="student">Student</option>
                         <option value="teacher">Teacher</option>
-                        <option value="admin">Admin</option>
                       </select>
                     </div>
                     <div>
@@ -3814,6 +3870,24 @@ const AutomatedAttendanceSystem = () => {
                             type="text"
                             value={createUserForm.rollNo}
                             onChange={(e) => setCreateUserForm({ ...createUserForm, rollNo: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Parent / Guardian Phone</label>
+                          <input
+                            type="tel"
+                            value={createUserForm.parentPhone || ''}
+                            onChange={(e) => setCreateUserForm({ ...createUserForm, parentPhone: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Emergency Contact</label>
+                          <input
+                            type="tel"
+                            value={createUserForm.emergencyContact || ''}
+                            onChange={(e) => setCreateUserForm({ ...createUserForm, emergencyContact: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                           />
                         </div>
@@ -3907,6 +3981,8 @@ const AutomatedAttendanceSystem = () => {
                             <div className="text-sm font-medium text-gray-900">{usr.name}</div>
                             <div className="text-xs text-gray-500">{usr.email}</div>
                             {usr.rollNo && <div className="text-xs text-gray-400 font-normal">Roll: {usr.rollNo}</div>}
+                            {usr.parentPhone && <div className="text-[11px] text-indigo-600 font-medium">Parent: {usr.parentPhone}</div>}
+                            {usr.emergencyContact && <div className="text-[11px] text-amber-600 font-medium">Emergency: {usr.emergencyContact}</div>}
                           </td>
                           <td className="px-4 py-4 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium uppercase ${
@@ -4033,6 +4109,24 @@ const AutomatedAttendanceSystem = () => {
                           type="text"
                           value={editUserForm.rollNo || ''}
                           onChange={(e) => setEditUserForm({ ...editUserForm, rollNo: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Parent / Guardian Phone</label>
+                        <input
+                          type="tel"
+                          value={editUserForm.parentPhone || ''}
+                          onChange={(e) => setEditUserForm({ ...editUserForm, parentPhone: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Emergency Contact</label>
+                        <input
+                          type="tel"
+                          value={editUserForm.emergencyContact || ''}
+                          onChange={(e) => setEditUserForm({ ...editUserForm, emergencyContact: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                         />
                       </div>
@@ -4582,42 +4676,44 @@ const AutomatedAttendanceSystem = () => {
         {/* Main Content Area */}
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
           {/* Navigation Bar */}
-          <div className="flex space-x-2 border-b border-gray-200 pb-4">
-            <button
-              onClick={() => setOrganizerView('institutes')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                organizerView === 'institutes'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200'
-              }`}
-            >
-              <Building2 className="w-4 h-4" />
-              <span>Institutes Directory</span>
-            </button>
+          <div className="flex">
+            <div className="inline-flex items-center gap-1 bg-slate-100/90 p-1.5 rounded-full border border-slate-200/80 shadow-inner">
+              <button
+                onClick={() => setOrganizerView('institutes')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-bold transition cursor-pointer ${
+                  organizerView === 'institutes'
+                    ? 'bg-white text-purple-600 shadow-sm border border-purple-100'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 font-semibold'
+                }`}
+              >
+                <Building2 className={`w-4 h-4 ${organizerView === 'institutes' ? 'text-purple-600' : 'text-slate-500'}`} />
+                <span>Institutes Directory</span>
+              </button>
 
-            <button
-              onClick={() => setOrganizerView('super_users')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                organizerView === 'super_users'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200'
-              }`}
-            >
-              <UserCheck className="w-4 h-4" />
-              <span>Create Institute Admin</span>
-            </button>
+              <button
+                onClick={() => setOrganizerView('super_users')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-bold transition cursor-pointer ${
+                  organizerView === 'super_users'
+                    ? 'bg-white text-purple-600 shadow-sm border border-purple-100'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 font-semibold'
+                }`}
+              >
+                <UserCheck className={`w-4 h-4 ${organizerView === 'super_users' ? 'text-purple-600' : 'text-slate-500'}`} />
+                <span>Create Institute Admin</span>
+              </button>
 
-            <button
-              onClick={() => setOrganizerView('analytics')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                organizerView === 'analytics'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Platform Analytics</span>
-            </button>
+              <button
+                onClick={() => setOrganizerView('analytics')}
+                className={`flex items-center gap-2 px-5 py-2 rounded-full text-xs font-bold transition cursor-pointer ${
+                  organizerView === 'analytics'
+                    ? 'bg-white text-purple-600 shadow-sm border border-purple-100'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 font-semibold'
+                }`}
+              >
+                <BarChart3 className={`w-4 h-4 ${organizerView === 'analytics' ? 'text-purple-600' : 'text-slate-500'}`} />
+                <span>Platform Analytics</span>
+              </button>
+            </div>
           </div>
 
           {/* TAB 1: Institutes Directory & Onboarding */}
