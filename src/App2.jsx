@@ -84,7 +84,10 @@ const AutomatedAttendanceSystem = () => {
   const [institutesList, setInstitutesList] = useState([]);
   const [currentInstitute, setCurrentInstitute] = useState(null);
   const [organizerView, setOrganizerView] = useState('institutes'); // 'institutes' | 'super_users' | 'analytics'
-  const [newInstituteForm, setNewInstituteForm] = useState({ code: '', name: '', latitude: 28.976635, longitude: 77.032988, allowedRadiusMeters: 500, address: '', logoUrl: '' });
+  const [newInstituteForm, setNewInstituteForm] = useState({ code: '', name: '', latitude: 28.976635, longitude: 77.032988, allowedRadiusMeters: 500, address: '' });
+  const [editInstituteForm, setEditInstituteForm] = useState(null);
+  const [createAdminForm, setCreateAdminForm] = useState({ instituteId: '', name: '', email: '', password: '' });
+  const [createdAdminSummary, setCreatedAdminSummary] = useState(null);
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
   const [signupData, setSignupData] = useState({ name: '', email: '', password: '', role: 'student', instituteCode: '', class: '', rollNo: '', department: '' });
   const [signupMessage, setSignupMessage] = useState({ type: '', text: '' });
@@ -705,8 +708,38 @@ const AutomatedAttendanceSystem = () => {
     }
   };
 
+  const ensureOrganizerExists = async () => {
+    try {
+      const orgEmail = "organizer@automark.com";
+      const q = query(collection(db, "users"), where("role", "==", "organizer"));
+      const orgSnap = await getDocs(q);
+
+      if (orgSnap.empty) {
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, orgEmail, "organizer123");
+          await setDoc(doc(db, "users", cred.user.uid), {
+            uid: cred.user.uid,
+            email: orgEmail,
+            name: "Platform Organizer",
+            role: "organizer",
+            disabled: false,
+            deleted: false,
+            createdAt: new Date().toISOString()
+          });
+        } catch (authErr) {
+          if (authErr.code === 'auth/email-already-in-use') {
+            console.log("Organizer account exists in Auth");
+          }
+        }
+      }
+    } catch (err) {
+      console.log("Organizer bootstrap completed");
+    }
+  };
+
   useEffect(() => {
     loadInstitutes();
+    ensureOrganizerExists();
   }, []);
 
   const handleCreateInstitute = async (e) => {
@@ -727,18 +760,98 @@ const AutomatedAttendanceSystem = () => {
         longitude: parseFloat(newInstituteForm.longitude) || 77.032988,
         allowedRadiusMeters: parseInt(newInstituteForm.allowedRadiusMeters, 10) || 500,
         address: newInstituteForm.address.trim(),
-        logoUrl: newInstituteForm.logoUrl || DEFAULT_PROFILE_IMAGE,
+        logoUrl: DEFAULT_PROFILE_IMAGE,
         status: 'active',
         createdAt: new Date().toISOString()
       };
 
       await setDoc(doc(db, "institutes", docId), payload);
       alert(`Institute "${payload.name}" (${payload.code}) onboarded successfully!`);
-      setNewInstituteForm({ code: '', name: '', latitude: 28.976635, longitude: 77.032988, allowedRadiusMeters: 500, address: '', logoUrl: '' });
+
+      setNewInstituteForm({
+        code: '',
+        name: '',
+        latitude: 28.976635,
+        longitude: 77.032988,
+        allowedRadiusMeters: 500,
+        address: ''
+      });
+
       await loadInstitutes();
     } catch (err) {
       console.error("Error creating institute:", err);
       alert(`Failed to onboard institute: ${err.message}`);
+    }
+  };
+
+  const handleCreateAdmin = async (e) => {
+    if (e) e.preventDefault();
+    if (!createAdminForm.instituteId || !createAdminForm.email.trim() || !createAdminForm.password) {
+      alert("Please select a Target Institute and enter both Admin Email and Password.");
+      return;
+    }
+
+    const selectedInst = institutesList.find(i => i.id === createAdminForm.instituteId || i.code === createAdminForm.instituteId);
+    let adminEmail = createAdminForm.email.trim();
+    if (!adminEmail.includes('@')) {
+      adminEmail = `${adminEmail.toLowerCase()}@automark.com`;
+    }
+    const adminPassword = createAdminForm.password;
+    const adminName = createAdminForm.name.trim() || `${selectedInst ? selectedInst.name : 'Institute'} Admin`;
+
+    try {
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, adminEmail, adminPassword);
+      await setDoc(doc(db, "users", cred.user.uid), {
+        uid: cred.user.uid,
+        email: adminEmail,
+        name: adminName,
+        role: 'admin',
+        instituteId: selectedInst ? selectedInst.id : createAdminForm.instituteId,
+        instituteName: selectedInst ? selectedInst.name : '',
+        disabled: false,
+        deleted: false,
+        createdAt: new Date().toISOString()
+      });
+
+      setCreatedAdminSummary({
+        instituteName: selectedInst ? selectedInst.name : createAdminForm.instituteId,
+        instituteCode: selectedInst ? selectedInst.code : '',
+        adminName: adminName,
+        adminEmail: adminEmail,
+        adminPassword: adminPassword
+      });
+
+      setCreateAdminForm({ instituteId: '', name: '', email: '', password: '' });
+      alert(`Institute Admin "${adminName}" created successfully!`);
+    } catch (err) {
+      console.error("Error creating Admin account:", err);
+      alert(`Failed to create Institute Admin: ${err.message}`);
+    }
+  };
+
+  const handleUpdateInstitute = async (e) => {
+    if (e) e.preventDefault();
+    if (!editInstituteForm) return;
+
+    try {
+      const docRef = doc(db, "institutes", editInstituteForm.id);
+      const updateData = {
+        name: editInstituteForm.name.trim(),
+        code: editInstituteForm.code.trim().toUpperCase(),
+        latitude: parseFloat(editInstituteForm.latitude) || 28.976635,
+        longitude: parseFloat(editInstituteForm.longitude) || 77.032988,
+        allowedRadiusMeters: parseInt(editInstituteForm.allowedRadiusMeters, 10) || 500,
+        address: editInstituteForm.address ? editInstituteForm.address.trim() : '',
+        updatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(docRef, updateData);
+      alert(`Institute "${updateData.name}" updated successfully!`);
+      setEditInstituteForm(null);
+      await loadInstitutes();
+    } catch (err) {
+      console.error("Error updating institute:", err);
+      alert(`Failed to update institute: ${err.message}`);
     }
   };
 
@@ -843,6 +956,100 @@ const AutomatedAttendanceSystem = () => {
     } catch (error) {
       console.error("Login error:", error);
       alert(`Authentication failed: ${error.message}`);
+    }
+  };
+
+  const handleSignup = async (e) => {
+    if (e) e.preventDefault();
+    setSignupMessage({ type: '', text: '' });
+
+    if (!signupData.email || !signupData.password || !signupData.name || !signupData.instituteCode) {
+      setSignupMessage({ type: 'error', text: 'Please fill in all required fields (Name, Email, Password, Institute Code).' });
+      return;
+    }
+
+    if (signupData.password.length < 6) {
+      setSignupMessage({ type: 'error', text: 'Password must be at least 6 characters long.' });
+      return;
+    }
+
+    if (signupData.role !== 'student' && signupData.role !== 'teacher') {
+      setSignupMessage({ type: 'error', text: 'Self-registration is only available for Students and Teachers. Admin accounts are created by the Platform Organizer.' });
+      return;
+    }
+
+    const cleanCode = signupData.instituteCode.trim().toUpperCase();
+    let matchedInst = institutesList.find(inst => inst.code.toUpperCase() === cleanCode || inst.id.toLowerCase() === cleanCode.toLowerCase());
+
+    if (!matchedInst) {
+      const instDocId = cleanCode.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const instSnap = await getDoc(doc(db, "institutes", instDocId));
+      if (instSnap.exists()) {
+        matchedInst = { id: instSnap.id, ...instSnap.data() };
+      }
+    }
+
+    if (!matchedInst) {
+      setSignupMessage({ type: 'error', text: `Institute Code "${cleanCode}" not found. Please check your Institute Code or ask your Institute Admin.` });
+      return;
+    }
+
+    setIsSigningUp(true);
+
+    try {
+      let email = signupData.email.trim();
+      if (!email.includes('@')) {
+        email = `${email.toLowerCase()}@automark.com`;
+      }
+
+      // Create Firebase Auth User
+      const credential = await createUserWithEmailAndPassword(auth, email, signupData.password);
+      const newUser = credential.user;
+
+      // Write User Profile to Firestore
+      const userProfile = {
+        uid: newUser.uid,
+        email: email,
+        name: signupData.name.trim(),
+        role: signupData.role,
+        instituteId: matchedInst.id,
+        instituteName: matchedInst.name,
+        class: signupData.role === 'student' ? signupData.class.trim() : '',
+        rollNo: signupData.role === 'student' ? signupData.rollNo.trim() : '',
+        department: signupData.department.trim(),
+        studentId: newUser.uid,
+        photo: '',
+        disabled: false,
+        deleted: false,
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, "users", newUser.uid), userProfile);
+
+      setCurrentInstitute(matchedInst);
+      setUser({
+        ...userProfile,
+        id: newUser.uid,
+        docId: newUser.uid
+      });
+
+      // Redirect to portal view
+      if (signupData.role === 'teacher') {
+        setCurrentView('teacher-dashboard');
+      } else if (signupData.role === 'student') {
+        setCurrentView('student-dashboard');
+      } else if (signupData.role === 'admin') {
+        setCurrentView('admin-dashboard');
+      }
+    } catch (err) {
+      console.error("Signup error:", err);
+      let msg = err.message;
+      if (err.code === 'auth/email-already-in-use') {
+        msg = 'An account with this email address already exists. Please sign in instead.';
+      }
+      setSignupMessage({ type: 'error', text: msg });
+    } finally {
+      setIsSigningUp(false);
     }
   };
 
@@ -1659,166 +1866,347 @@ const AutomatedAttendanceSystem = () => {
             </p>
           </div>
 
-          <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-5">
-            {/* Segmented Role Selector Bar */}
-            <div>
-              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2 text-center">
-                Select Login Portal
-              </label>
-              
-              <div className="grid grid-cols-4 gap-1 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 shadow-inner">
-                <button
-                  type="button"
-                  onClick={() => setLoginData({...loginData, role: 'teacher'})}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
-                    loginData.role === 'teacher'
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
-                  }`}
-                >
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Teacher</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setLoginData({...loginData, role: 'student'})}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
-                    loginData.role === 'student'
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
-                  }`}
-                >
-                  <User className="w-3.5 h-3.5" />
-                  <span>Student</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setLoginData({...loginData, role: 'admin'})}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
-                    loginData.role === 'admin'
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
-                  }`}
-                >
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Admin</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setLoginData({...loginData, role: 'organizer'})}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
-                    loginData.role === 'organizer' || loginData.role === 'super_admin'
-                      ? 'bg-purple-600 text-white shadow-md'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
-                  }`}
-                >
-                  <Globe className="w-3.5 h-3.5" />
-                  <span>Organizer</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Inputs Group */}
-            <div className="space-y-4">
-              {loginData.role !== 'organizer' && loginData.role !== 'super_admin' && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                    Institute Code <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                      <Building2 className="w-4 h-4" />
-                    </div>
-                    <input
-                      id="instituteCode"
-                      type="text"
-                      required={loginData.role !== 'organizer' && loginData.role !== 'super_admin'}
-                      value={loginData.instituteCode}
-                      onChange={(e) => setLoginData({...loginData, instituteCode: e.target.value.toUpperCase()})}
-                      className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white uppercase font-mono tracking-wider"
-                      placeholder="e.g. PIET01, DPS02"
-                    />
-                  </div>
-                  {institutesList.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1 items-center text-[11px] text-gray-500">
-                      <span className="font-semibold text-gray-600">Select Institute:</span>
-                      {institutesList.map(inst => (
-                        <button
-                          key={inst.id}
-                          type="button"
-                          onClick={() => setLoginData({...loginData, instituteCode: inst.code})}
-                          className={`px-2 py-0.5 rounded font-mono font-bold transition border text-[11px] ${
-                            loginData.instituteCode === inst.code 
-                              ? 'bg-indigo-600 text-white border-indigo-600' 
-                              : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
-                          }`}
-                        >
-                          {inst.code}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+          {authMode === 'login' ? (
+            <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-5">
+              {/* Segmented Role Selector Bar */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Username / Email
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2 text-center">
+                  Select Login Portal
                 </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                    <User className="w-4 h-4" />
-                  </div>
-                  <input
-                    id="username"
-                    type="text"
-                    required
-                    value={loginData.username}
-                    onChange={(e) => setLoginData({...loginData, username: e.target.value})}
-                    className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
-                    placeholder={loginData.role === 'student' ? "Enter Roll No or Email" : "Enter Email or Username"}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
-                  Password
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                    <Lock className="w-4 h-4" />
-                  </div>
-                  <input
-                    id="password"
-                    type={showLoginPassword ? "text" : "password"}
-                    required
-                    value={loginData.password}
-                    onChange={(e) => setLoginData({...loginData, password: e.target.value})}
-                    className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
-                    placeholder="••••••••"
-                  />
+                
+                <div className="grid grid-cols-4 gap-1 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 shadow-inner">
                   <button
                     type="button"
-                    onClick={() => setShowLoginPassword(!showLoginPassword)}
-                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 transition"
+                    onClick={() => setLoginData({...loginData, role: 'teacher'})}
+                    className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                      loginData.role === 'teacher'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
                   >
-                    {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Teacher</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLoginData({...loginData, role: 'student'})}
+                    className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                      loginData.role === 'student'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span>Student</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setLoginData({...loginData, role: 'admin'}); setAuthMode('login'); }}
+                    className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                      loginData.role === 'admin'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Admin</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setLoginData({...loginData, role: 'organizer'}); setAuthMode('login'); }}
+                    className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                      loginData.role === 'organizer' || loginData.role === 'super_admin'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5" />
+                    <span>Organizer</span>
                   </button>
                 </div>
               </div>
-            </div>
 
-            {/* Submit Button */}
-            <button
-              type="submit"
-              className="w-full flex justify-center items-center gap-2 py-3 px-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-lg shadow-indigo-500/25 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all cursor-pointer active:scale-[0.99]"
-            >
-              <span>Sign In as {loginData.role.charAt(0).toUpperCase() + loginData.role.slice(1)}</span>
-            </button>
-          </form>
+              {/* Inputs Group */}
+              <div className="space-y-4">
+                {loginData.role !== 'organizer' && loginData.role !== 'super_admin' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Select Institute <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                        <Building2 className="w-4 h-4" />
+                      </div>
+                      <select
+                        id="instituteCode"
+                        required={loginData.role !== 'organizer' && loginData.role !== 'super_admin'}
+                        value={loginData.instituteCode}
+                        onChange={(e) => setLoginData({...loginData, instituteCode: e.target.value})}
+                        className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
+                      >
+                        <option value="">-- Select Your Institute --</option>
+                        {institutesList.map(inst => (
+                          <option key={inst.id} value={inst.code}>
+                            {inst.name} ({inst.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Username / Email
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="username"
+                      type="text"
+                      required
+                      value={loginData.username}
+                      onChange={(e) => setLoginData({...loginData, username: e.target.value})}
+                      className="block w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
+                      placeholder={loginData.role === 'student' ? "Enter Roll No or Email" : "Enter Email or Username"}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="password"
+                      type={showLoginPassword ? "text" : "password"}
+                      required
+                      value={loginData.password}
+                      onChange={(e) => setLoginData({...loginData, password: e.target.value})}
+                      className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all bg-gray-50/50 focus:bg-white"
+                      placeholder="••••••••"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginPassword(!showLoginPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 transition"
+                    >
+                      {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                className="w-full flex justify-center items-center gap-2 py-3 px-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-lg shadow-indigo-500/25 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all cursor-pointer active:scale-[0.99]"
+              >
+                <span>Sign In as {loginData.role === 'organizer' ? 'Organizer' : loginData.role.charAt(0).toUpperCase() + loginData.role.slice(1)}</span>
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleSignup} className="space-y-4">
+              {signupMessage.text && (
+                <div className={`p-3 rounded-xl flex items-center gap-2 text-xs font-medium ${
+                  signupMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                }`}>
+                  {signupMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />}
+                  <span>{signupMessage.text}</span>
+                </div>
+              )}
+
+              {/* Role Selector (Student, Teacher Only) */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 text-center">
+                  Select Account Role
+                </label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 shadow-inner">
+                  <button
+                    type="button"
+                    onClick={() => setSignupData({...signupData, role: 'student'})}
+                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      signupData.role === 'student'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <User className="w-4 h-4" />
+                    <span>Student</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSignupData({...signupData, role: 'teacher'})}
+                    className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      signupData.role === 'teacher'
+                        ? 'bg-indigo-600 text-white shadow-md'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <UserCheck className="w-4 h-4" />
+                    <span>Teacher</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Select Institute Dropdown */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Select Institute <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                    <Building2 className="w-4 h-4" />
+                  </div>
+                  <select
+                    required
+                    value={signupData.instituteCode}
+                    onChange={(e) => setSignupData({...signupData, instituteCode: e.target.value})}
+                    className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-xl text-sm font-medium bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">-- Select Your Institute --</option>
+                    {institutesList.map(inst => (
+                      <option key={inst.id} value={inst.code}>
+                        {inst.name} ({inst.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Full Name & Email */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={signupData.name}
+                    onChange={(e) => setSignupData({...signupData, name: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                    placeholder="e.g. Mayank Kumar"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Email Address *</label>
+                  <input
+                    type="email"
+                    required
+                    value={signupData.email}
+                    onChange={(e) => setSignupData({...signupData, email: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                    placeholder="student@school.edu"
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Password * (min. 6 chars)</label>
+                <input
+                  type="password"
+                  required
+                  value={signupData.password}
+                  onChange={(e) => setSignupData({...signupData, password: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Choose a strong password"
+                />
+              </div>
+
+              {/* Class Dropdown & Roll No (Only for Students) */}
+              {signupData.role === 'student' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Class / Section *</label>
+                    <select
+                      required
+                      value={signupData.class}
+                      onChange={(e) => setSignupData({...signupData, class: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">-- Select Class / Section --</option>
+                      {classesList.map(cls => (
+                        <option key={cls.id || cls.name} value={cls.name || cls.id}>
+                          {cls.name} {cls.department ? `(${cls.department})` : ''}
+                        </option>
+                      ))}
+                      {classesList.length === 0 && (
+                        <>
+                          <option value="5A">5A (Primary)</option>
+                          <option value="AIML 5th A">AIML 5th A (Computer Science)</option>
+                          <option value="CSE 3B">CSE 3B (Computer Science)</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Roll Number</label>
+                    <input
+                      type="text"
+                      value={signupData.rollNo}
+                      onChange={(e) => setSignupData({...signupData, rollNo: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                      placeholder="e.g. 2823392"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSigningUp}
+                className="w-full flex justify-center items-center gap-2 py-3 px-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-lg shadow-indigo-500/25 transition cursor-pointer active:scale-[0.99] disabled:opacity-50"
+              >
+                {isSigningUp ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Creating Account...</span>
+                  </>
+                ) : (
+                  <span>Create Account & Log In</span>
+                )}
+              </button>
+            </form>
+          )}
+
+          {/* Login / Sign Up Toggle Link */}
+          {loginData.role !== 'admin' && loginData.role !== 'organizer' && loginData.role !== 'super_admin' && (
+            <div className="pt-4 border-t border-gray-100 text-center">
+              {authMode === 'login' ? (
+                <p className="text-xs text-gray-500">
+                  Don't have an account yet?{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('signup'); setSignupMessage({ type: '', text: '' }); }}
+                    className="font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer"
+                  >
+                    Create Account / Register
+                  </button>
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  Already registered?{' '}
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode('login')}
+                    className="font-bold text-indigo-600 hover:text-indigo-800 transition cursor-pointer"
+                  >
+                    Back to Sign In
+                  </button>
+                </p>
+              )}
+            </div>
+          )}
 
         </div>
       </div>
@@ -4185,36 +4573,36 @@ const AutomatedAttendanceSystem = () => {
 
   const renderOrganizerDashboard = () => {
     return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
+      <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
         {/* Organizer Header */}
-        <header className="bg-slate-950 border-b border-slate-800 sticky top-0 z-50">
+        <header className="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-20">
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-purple-600/20 border border-purple-500/30 rounded-xl">
-                  <Globe className="w-6 h-6 text-purple-400" />
+                <div className="p-2 bg-purple-50 border border-purple-200 rounded-xl">
+                  <Globe className="w-6 h-6 text-purple-600" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-lg font-black tracking-tight text-white">AutoMark Organizer</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
+                    <span className="text-lg font-black tracking-tight text-gray-900">AutoMark Organizer</span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200 uppercase">
                       Platform Organizer
                     </span>
                   </div>
-                  <span className="text-xs text-slate-400 block font-medium">Multi-Institute Platform Management</span>
+                  <span className="text-xs text-gray-500 block font-medium">Multi-Institute Platform Management</span>
                 </div>
               </div>
 
               <div className="flex items-center space-x-4">
-                <div className="hidden sm:flex items-center gap-4 text-xs font-semibold px-4 py-2 bg-slate-900 rounded-xl border border-slate-800 text-slate-300">
-                  <span>🏢 Institutes: <strong className="text-purple-400 font-bold">{institutesList.length}</strong></span>
-                  <span>👥 Users: <strong className="text-emerald-400 font-bold">{usersList.length}</strong></span>
+                <div className="hidden sm:flex items-center gap-4 text-xs font-semibold px-4 py-2 bg-gray-50 rounded-xl border border-gray-200 text-gray-700">
+                  <span>🏢 Institutes: <strong className="text-purple-600 font-bold">{institutesList.length}</strong></span>
+                  <span>👥 Users: <strong className="text-emerald-600 font-bold">{usersList.length}</strong></span>
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 transition cursor-pointer"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 transition cursor-pointer shadow-sm"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-4 h-4 text-gray-500" />
                   <span>Sign Out</span>
                 </button>
               </div>
@@ -4225,13 +4613,13 @@ const AutomatedAttendanceSystem = () => {
         {/* Main Content Area */}
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
           {/* Navigation Bar */}
-          <div className="flex space-x-2 border-b border-slate-800 pb-4">
+          <div className="flex space-x-2 border-b border-gray-200 pb-4">
             <button
               onClick={() => setOrganizerView('institutes')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 organizerView === 'institutes'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200'
               }`}
             >
               <Building2 className="w-4 h-4" />
@@ -4240,10 +4628,10 @@ const AutomatedAttendanceSystem = () => {
 
             <button
               onClick={() => setOrganizerView('super_users')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 organizerView === 'super_users'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200'
               }`}
             >
               <UserCheck className="w-4 h-4" />
@@ -4252,10 +4640,10 @@ const AutomatedAttendanceSystem = () => {
 
             <button
               onClick={() => setOrganizerView('analytics')}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 organizerView === 'analytics'
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 border border-gray-200'
               }`}
             >
               <BarChart3 className="w-4 h-4" />
@@ -4267,92 +4655,95 @@ const AutomatedAttendanceSystem = () => {
           {organizerView === 'institutes' && (
             <div className="space-y-8">
               {/* Onboard New Institute Form */}
-              <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-4">
                   <div>
-                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                      <Plus className="w-5 h-5 text-purple-400" />
+                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                      <Plus className="w-5 h-5 text-purple-600" />
                       <span>Onboard New Institute</span>
                     </h3>
-                    <p className="text-xs text-slate-400">Register a new school or college on the platform with campus location bounds.</p>
+                    <p className="text-xs text-gray-500">Register a new school or college with campus location bounds.</p>
                   </div>
                 </div>
 
-                <form onSubmit={handleCreateInstitute} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Institute Code *</label>
-                    <input
-                      type="text"
-                      required
-                      value={newInstituteForm.code}
-                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, code: e.target.value.toUpperCase() })}
-                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm font-mono uppercase text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      placeholder="e.g. PIET01"
-                    />
+                <form onSubmit={handleCreateInstitute} className="space-y-6">
+                  {/* Institute Location & Metadata */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Institute Code *</label>
+                      <input
+                        type="text"
+                        required
+                        value={newInstituteForm.code}
+                        onChange={(e) => setNewInstituteForm({ ...newInstituteForm, code: e.target.value.toUpperCase() })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm font-mono uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        placeholder="e.g. PIET01"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Full Institute Name *</label>
+                      <input
+                        type="text"
+                        required
+                        value={newInstituteForm.name}
+                        onChange={(e) => setNewInstituteForm({ ...newInstituteForm, name: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        placeholder="e.g. Panipat Institute of Eng & Tech"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Campus Latitude</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={newInstituteForm.latitude}
+                        onChange={(e) => setNewInstituteForm({ ...newInstituteForm, latitude: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white font-mono"
+                        placeholder="28.976635"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Campus Longitude</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={newInstituteForm.longitude}
+                        onChange={(e) => setNewInstituteForm({ ...newInstituteForm, longitude: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white font-mono"
+                        placeholder="77.032988"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Geofence Radius (Meters)</label>
+                      <input
+                        type="number"
+                        value={newInstituteForm.allowedRadiusMeters}
+                        onChange={(e) => setNewInstituteForm({ ...newInstituteForm, allowedRadiusMeters: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white font-mono"
+                        placeholder="500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Campus Address</label>
+                      <input
+                        type="text"
+                        value={newInstituteForm.address}
+                        onChange={(e) => setNewInstituteForm({ ...newInstituteForm, address: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        placeholder="Sonipat, Haryana"
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Full Institute Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={newInstituteForm.name}
-                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, name: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      placeholder="e.g. Panipat Institute of Eng & Tech"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Campus Latitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={newInstituteForm.latitude}
-                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, latitude: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
-                      placeholder="28.976635"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Campus Longitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={newInstituteForm.longitude}
-                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, longitude: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
-                      placeholder="77.032988"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Geofence Radius (Meters)</label>
-                    <input
-                      type="number"
-                      value={newInstituteForm.allowedRadiusMeters}
-                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, allowedRadiusMeters: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
-                      placeholder="500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Campus Address</label>
-                    <input
-                      type="text"
-                      value={newInstituteForm.address}
-                      onChange={(e) => setNewInstituteForm({ ...newInstituteForm, address: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      placeholder="Sonipat, Haryana"
-                    />
-                  </div>
-
-                  <div className="md:col-span-3 flex justify-end">
+                  <div className="flex justify-end pt-2">
                     <button
                       type="submit"
-                      className="px-6 py-3 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30 transition cursor-pointer flex items-center gap-2"
+                      className="px-6 py-3 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 shadow-md shadow-purple-600/20 transition cursor-pointer flex items-center gap-2"
                     >
                       <Building2 className="w-4 h-4" />
                       <span>Onboard Institute</span>
@@ -4362,16 +4753,16 @@ const AutomatedAttendanceSystem = () => {
               </div>
 
               {/* Onboarded Institutes Table */}
-              <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden space-y-4 p-6">
-                <h3 className="text-lg font-bold text-white">Onboarded Institutes ({institutesList.length})</h3>
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm space-y-4 p-6">
+                <h3 className="text-lg font-bold text-gray-900">Onboarded Institutes ({institutesList.length})</h3>
                 {institutesList.length === 0 ? (
-                  <div className="text-center py-12 text-slate-500 text-sm">
+                  <div className="text-center py-12 text-gray-500 text-sm">
                     No institutes onboarded yet. Fill out the form above to onboard the first school or institute.
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs text-slate-300">
-                      <thead className="bg-slate-900 text-slate-400 font-semibold uppercase tracking-wider">
+                    <table className="w-full text-left text-xs text-gray-700">
+                      <thead className="bg-gray-50 text-gray-600 font-semibold uppercase tracking-wider">
                         <tr>
                           <th className="p-3">Code</th>
                           <th className="p-3">Institute Name</th>
@@ -4379,20 +4770,30 @@ const AutomatedAttendanceSystem = () => {
                           <th className="p-3">Geofence Radius</th>
                           <th className="p-3">Address</th>
                           <th className="p-3">Status</th>
+                          <th className="p-3 text-right">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-800 font-medium">
+                      <tbody className="divide-y divide-gray-100 font-medium">
                         {institutesList.map((inst) => (
-                          <tr key={inst.id} className="hover:bg-slate-900/50">
-                            <td className="p-3 font-mono font-bold text-purple-400">{inst.code}</td>
-                            <td className="p-3 font-bold text-white">{inst.name}</td>
-                            <td className="p-3 font-mono text-slate-400">{inst.latitude}, {inst.longitude}</td>
-                            <td className="p-3 font-mono text-emerald-400">{inst.allowedRadiusMeters || 500} m</td>
-                            <td className="p-3 text-slate-400">{inst.address || 'N/A'}</td>
+                          <tr key={inst.id} className="hover:bg-gray-50/80">
+                            <td className="p-3 font-mono font-bold text-purple-600">{inst.code}</td>
+                            <td className="p-3 font-bold text-gray-900">{inst.name}</td>
+                            <td className="p-3 font-mono text-gray-500">{inst.latitude}, {inst.longitude}</td>
+                            <td className="p-3 font-mono text-emerald-600 font-semibold">{inst.allowedRadiusMeters || 500} m</td>
+                            <td className="p-3 text-gray-500">{inst.address || 'N/A'}</td>
                             <td className="p-3">
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
                                 Active
                               </span>
+                            </td>
+                            <td className="p-3 text-right">
+                              <button
+                                onClick={() => setEditInstituteForm({ ...inst })}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Edit</span>
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -4401,82 +4802,238 @@ const AutomatedAttendanceSystem = () => {
                   </div>
                 )}
               </div>
+
+              {/* Edit Institute Modal */}
+              {editInstituteForm && (
+                <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                  <div className="bg-white border border-gray-200 rounded-2xl max-w-xl w-full p-6 space-y-6 shadow-2xl text-gray-900">
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-4">
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                          <Edit3 className="w-5 h-5 text-purple-600" />
+                          <span>Edit Institute Details</span>
+                        </h3>
+                        <p className="text-xs text-gray-500">Update campus GPS geofence bounds or institute name.</p>
+                      </div>
+                      <button onClick={() => setEditInstituteForm(null)} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleUpdateInstitute} className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <label className="block text-gray-700 font-semibold uppercase mb-1">Institute Code *</label>
+                        <input
+                          type="text"
+                          required
+                          value={editInstituteForm.code}
+                          onChange={(e) => setEditInstituteForm({ ...editInstituteForm, code: e.target.value.toUpperCase() })}
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 font-mono uppercase focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold uppercase mb-1">Full Institute Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={editInstituteForm.name}
+                          onChange={(e) => setEditInstituteForm({ ...editInstituteForm, name: e.target.value })}
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold uppercase mb-1">Campus Latitude</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={editInstituteForm.latitude}
+                          onChange={(e) => setEditInstituteForm({ ...editInstituteForm, latitude: e.target.value })}
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 font-mono focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold uppercase mb-1">Campus Longitude</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={editInstituteForm.longitude}
+                          onChange={(e) => setEditInstituteForm({ ...editInstituteForm, longitude: e.target.value })}
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 font-mono focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold uppercase mb-1">Geofence Radius (Meters)</label>
+                        <input
+                          type="number"
+                          value={editInstituteForm.allowedRadiusMeters}
+                          onChange={(e) => setEditInstituteForm({ ...editInstituteForm, allowedRadiusMeters: e.target.value })}
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 font-mono focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-gray-700 font-semibold uppercase mb-1">Address</label>
+                        <input
+                          type="text"
+                          value={editInstituteForm.address || ''}
+                          onChange={(e) => setEditInstituteForm({ ...editInstituteForm, address: e.target.value })}
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2 flex justify-end gap-2 pt-2 border-t border-gray-100">
+                        <button
+                          type="button"
+                          onClick={() => setEditInstituteForm(null)}
+                          className="px-4 py-2 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 shadow-md transition cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Save className="w-4 h-4" />
+                          <span>Save Changes</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* TAB 2: Institute Admin Provisioning */}
           {organizerView === 'super_users' && (
-            <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-6">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-purple-400" />
-                <span>Create & Assign Institute Admin</span>
-              </h3>
-              <p className="text-xs text-slate-400">Create an Admin user and link them to one of the onboarded institutes.</p>
+            <div className="space-y-6">
+              {/* Created Admin Credentials Summary Card */}
+              {createdAdminSummary && (
+                <div className="bg-purple-50 border border-purple-200 p-6 rounded-2xl space-y-4 text-purple-950 shadow-sm relative">
+                  <div className="flex items-center justify-between border-b border-purple-200/80 pb-3">
+                    <h4 className="text-base font-bold text-purple-900 flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      <span>Institute Admin Account Created Successfully!</span>
+                    </h4>
+                    <button onClick={() => setCreatedAdminSummary(null)} className="text-purple-400 hover:text-purple-700 cursor-pointer">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-white p-4 rounded-xl border border-purple-100 text-xs">
+                    <div>
+                      <span className="text-gray-500 block font-semibold uppercase">Target Institute</span>
+                      <span className="text-sm font-bold text-gray-900">{createdAdminSummary.instituteName} ({createdAdminSummary.instituteCode})</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block font-semibold uppercase">Admin Name</span>
+                      <span className="text-sm font-bold text-purple-700">{createdAdminSummary.adminName}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block font-semibold uppercase">Admin Email</span>
+                      <span className="text-sm font-mono font-bold text-emerald-700">{createdAdminSummary.adminEmail}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block font-semibold uppercase">Admin Password</span>
+                      <span className="text-sm font-mono font-bold text-amber-700">{createdAdminSummary.adminPassword}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-              <form onSubmit={handleCreateUser} className="space-y-4 max-w-xl">
+              <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6 max-w-2xl">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Target Institute *</label>
-                  <select
-                    required
-                    value={createUserForm.instituteId}
-                    onChange={(e) => setCreateUserForm({ ...createUserForm, instituteId: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="">-- Select Target Institute --</option>
-                    {institutesList.map(inst => (
-                      <option key={inst.id} value={inst.id}>{inst.name} ({inst.code})</option>
-                    ))}
-                  </select>
+                  <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-purple-600" />
+                    <span>Create & Assign Institute Admin</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">Create an Admin user account with initial login credentials and link them to an onboarded institute.</p>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Admin Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={createUserForm.name}
-                    onChange={(e) => setCreateUserForm({ ...createUserForm, name: e.target.value, role: 'admin' })}
-                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="e.g. Dr. A. K. Sharma"
-                  />
-                </div>
+                <form onSubmit={handleCreateAdmin} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Target Institute *</label>
+                    <select
+                      required
+                      value={createAdminForm.instituteId}
+                      onChange={(e) => setCreateAdminForm({ ...createAdminForm, instituteId: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                    >
+                      <option value="">-- Select Target Institute --</option>
+                      {institutesList.map(inst => (
+                        <option key={inst.id} value={inst.id}>{inst.name} ({inst.code})</option>
+                      ))}
+                    </select>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase mb-1">Admin Email *</label>
-                  <input
-                    type="email"
-                    required
-                    value={createUserForm.email}
-                    onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value, role: 'admin' })}
-                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="e.g. admin@piet.edu"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Admin Full Name</label>
+                    <input
+                      type="text"
+                      value={createAdminForm.name}
+                      onChange={(e) => setCreateAdminForm({ ...createAdminForm, name: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                      placeholder="e.g. Dr. A. K. Sharma"
+                    />
+                  </div>
 
-                <button
-                  type="submit"
-                  className="px-6 py-3 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30 transition cursor-pointer"
-                >
-                  Create Institute Admin
-                </button>
-              </form>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Admin Login Email *</label>
+                      <input
+                        type="email"
+                        required
+                        value={createAdminForm.email}
+                        onChange={(e) => setCreateAdminForm({ ...createAdminForm, email: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        placeholder="e.g. admin@piet.edu"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 uppercase mb-1">Admin Password *</label>
+                      <input
+                        type="password"
+                        required
+                        value={createAdminForm.password}
+                        onChange={(e) => setCreateAdminForm({ ...createAdminForm, password: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50/50 border border-gray-300 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white"
+                        placeholder="••••••••"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      className="px-6 py-3 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 shadow-md shadow-purple-600/20 transition cursor-pointer flex items-center gap-2"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>Create Institute Admin</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
 
           {/* TAB 3: Platform Analytics */}
           {organizerView === 'analytics' && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Total Onboarded Institutes</span>
-                <span className="text-4xl font-extrabold text-purple-400 block">{institutesList.length}</span>
+              <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-2">
+                <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Onboarded Institutes</span>
+                <span className="text-4xl font-extrabold text-purple-600 block">{institutesList.length}</span>
               </div>
-              <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">Total Platform Users</span>
-                <span className="text-4xl font-extrabold text-emerald-400 block">{usersList.length}</span>
+              <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-2">
+                <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">Total Platform Users</span>
+                <span className="text-4xl font-extrabold text-emerald-600 block">{usersList.length}</span>
               </div>
-              <div className="p-6 bg-slate-950 rounded-2xl border border-slate-800 space-y-2">
-                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider block">System Status</span>
-                <span className="text-4xl font-extrabold text-blue-400 block">Active Platform</span>
+              <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-2">
+                <span className="text-xs text-gray-500 font-bold uppercase tracking-wider block">System Status</span>
+                <span className="text-4xl font-extrabold text-blue-600 block">Active Platform</span>
               </div>
             </div>
           )}
